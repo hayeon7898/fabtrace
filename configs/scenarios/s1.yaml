@@ -1,0 +1,10 @@
+# S1: 식각 설비 ETCH-03의 챔버 B가 12~18일차에 이상을 일으켜 Edge-Ring 불량을 만든다.
+id: S1
+cause:
+  step: ETCH
+  chamber: ETCH-03/B
+window:          # 원인 단계를 지난 시각 기준, 양 끝 날짜 포함
+  start_day: 12
+  end_day: 18
+pattern: Edge-Ring
+intensity: 0.4   # 영향 웨이퍼가 이 패턴으로 바뀔 확률
