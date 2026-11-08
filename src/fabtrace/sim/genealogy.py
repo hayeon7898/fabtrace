@@ -9,16 +9,13 @@
 - 각 단계는 설정된 소요 시간에 0~2시간 대기를 더한다.
 - 같은 로트 안에서는 슬롯마다 몇 분씩 차이를 둔다.
 
-사용법: uv run python -m fabtrace.sim.genealogy --config configs/fab.yaml --seed 42
+실행은 fabtrace.sim.generate가 담당한다.
 """
-
-import argparse
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from fabtrace.sim.config import FabConfig, load_fab_config
+from fabtrace.sim.config import FabConfig
 
 SLOT_MINUTES = 3
 MAX_WAIT_HOURS = 2.0
@@ -60,21 +57,3 @@ def generate_genealogy(config: FabConfig, seed: int) -> pd.DataFrame:
             step_start += pd.Timedelta(hours=step.hours) + wait
 
     return pd.concat(frames, ignore_index=True)
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=Path, default=Path("configs/fab.yaml"))
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--out", type=Path, default=Path("data/processed"))
-    args = parser.parse_args()
-
-    df = generate_genealogy(load_fab_config(args.config), args.seed)
-    args.out.mkdir(parents=True, exist_ok=True)
-    path = args.out / "genealogy.parquet"
-    df.to_parquet(path, index=False)
-    print(f"{path}: 웨이퍼 {df['wafer_id'].nunique():,}장, 로트 {df['lot_id'].nunique():,}개, {len(df):,}행")
-
-
-if __name__ == "__main__":
-    main()
