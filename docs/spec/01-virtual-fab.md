@@ -38,7 +38,7 @@ WM-811K 웨이퍼 맵을 합성 로트 이력에 배정해, 원인 챔버를 알
 ## 완료 기준
 
 - [ ] `python -m fabtrace.sim.generate --scenario configs/scenarios/s1.yaml --seed 42` 실행 시 위 3개 파일이 생성된다
-- [ ] 같은 시드로 두 번 실행한 결과가 바이트 단위로 같다 (`pytest tests/test_sim.py::test_reproducible`)
+- [ ] 같은 시드로 두 번 실행한 결과가 내용이 같다 (`tests/sim/test_generate.py`)
 - [ ] 주입 구간에서 `ETCH-03 / B` 경유 웨이퍼의 Edge-Ring 비율이 나머지보다 뚜렷이 높다 (`notebooks/01_sanity.ipynb` 그림 1장)
 - [ ] 공통 병목 설비가 Edge-Ring 웨이퍼 경유 횟수 1위로 나온다 (함정이 실제로 작동하는지 확인)
 - [ ] `data/`는 `.gitignore`에 들어 있고, 원데이터 다운로드 방법이 README에 있다

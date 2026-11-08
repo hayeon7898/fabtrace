@@ -13,12 +13,11 @@ so it is converted once on Kaggle and only the compact output is used locally.
    - `wm811k_labeled_64.npz`: 172,950 labeled wafer maps, 64x64, values 0/1/2
    - `wm811k_labeled_64.parquet`: labels and original indices, same row order
 3. Verify:
-
-```bash
-uv sync
-uv run python scripts/check_data.py
-```
-
+   ```bash
+   uv sync
+   uv run python scripts/check_data.py
+   ```
+   
 | Class | Count |
 | --- | --- |
 | none | 147,431 |
@@ -34,3 +33,12 @@ uv run python scripts/check_data.py
 `none` accounts for 85% of labeled maps, so macro-F1 is used as the main metric instead of accuracy.
 
 ![Sample wafer maps](docs/figures/wm811k_samples.png)
+
+## Generate the simulated fab
+
+```bash
+uv run python -m fabtrace.sim.generate --scenario configs/scenarios/s1.yaml --seed 42
+```
+
+- Creates `genealogy.parquet`, `wafers.parquet`, and `ground_truth.json` in `data/processed/`.
+- The same seed always produces the same data.

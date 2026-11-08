@@ -5,19 +5,14 @@
 - 영향 웨이퍼는 intensity 확률로 시나리오 패턴으로 바뀐다
 - 맵은 fab pool에서 중복 없이 뽑는다. fab pool은 분류기 학습에 쓰이지 않는다
 
-사용법: uv run python -m fabtrace.sim.inject --scenario configs/scenarios/s1.yaml --seed 42
+실행은 fabtrace.sim.generate가 담당한다.
 """
-
-import argparse
-import json
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from fabtrace.data.wm811k import assign_pools, load_meta
-from fabtrace.sim.config import FabConfig, load_fab_config
-from fabtrace.sim.scenario import Scenario, load_scenario
+from fabtrace.sim.config import FabConfig
+from fabtrace.sim.scenario import Scenario
 
 
 def affected_wafers(genealogy: pd.DataFrame, sc: Scenario, start_date: str) -> np.ndarray:
@@ -82,32 +77,3 @@ def ground_truth(sc: Scenario, fab: FabConfig, wafers: pd.DataFrame, seed: int) 
         "n_injected_wafers": int(wafers["injected"].sum()),
         "affected_lots": sorted(affected["lot_id"].unique().tolist()),
     }
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--fab", type=Path, default=Path("configs/fab.yaml"))
-    parser.add_argument("--scenario", type=Path, default=Path("configs/scenarios/s1.yaml"))
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--data", type=Path, default=Path("data/interim"))
-    parser.add_argument("--processed", type=Path, default=Path("data/processed"))
-    args = parser.parse_args()
-
-    fab = load_fab_config(args.fab)
-    sc = load_scenario(args.scenario, fab)
-    genealogy = pd.read_parquet(args.processed / "genealogy.parquet")
-    meta = load_meta(args.data)
-    pool = meta[assign_pools(meta["label"]) == "fab"]
-
-    wafers = build_wafers(genealogy, sc, fab, pool, args.seed)
-    wafers.to_parquet(args.processed / "wafers.parquet", index=False)
-    gt = ground_truth(sc, fab, wafers, args.seed)
-    (args.processed / "ground_truth.json").write_text(json.dumps(gt, indent=2, ensure_ascii=False))
-
-    rate = wafers.groupby("affected")["true_pattern"].apply(lambda s: (s == sc.pattern).mean())
-    print(f"웨이퍼 {len(wafers):,}장, 영향 {gt['n_affected_wafers']}장 ({len(gt['affected_lots'])}로트)")
-    print(f"{sc.pattern} 비율: 영향 웨이퍼 {rate.get(True, 0):.1%}, 나머지 {rate.get(False, 0):.1%}")
-
-
-if __name__ == "__main__":
-    main()
