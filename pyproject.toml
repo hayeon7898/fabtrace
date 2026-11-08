@@ -25,3 +25,8 @@ build-backend = "uv_build"
 dev = [
     "pytest>=9.2.0",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--import-mode=importlib"
+markers = ["needs_data: data/interim 파일이 있어야 실행되는 테스트 (CI에서는 건너뜀)"]
