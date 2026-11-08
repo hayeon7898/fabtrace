@@ -13,6 +13,7 @@ dependencies = [
     "pandas>=3.1.1",
     "pyarrow>=26.0.1",
     "pyyaml>=6.0.3",
+    "torch>=2.15.0",
 ]
 
 [project.scripts]
@@ -32,3 +33,11 @@ dev = [
 testpaths = ["tests"]
 addopts = "--import-mode=importlib"
 markers = ["needs_data: data/interim 파일이 있어야 실행되는 테스트 (CI에서는 건너뜀)"]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu" }]
