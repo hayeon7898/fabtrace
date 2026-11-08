@@ -1,0 +1,25 @@
+# 가상 팹 공정 구조. 설비 ID는 시나리오 YAML에서 그대로 참조한다.
+start_date: "2026-01-01"
+days: 40
+lots_per_day: 8
+wafers_per_lot: 25
+
+steps:
+  - name: OXIDATION
+    hours: 6
+    tools: {OX-01: [A, B], OX-02: [A, B]}
+  - name: PHOTO
+    hours: 4
+    tools: {PH-01: [A, B], PH-02: [A, B]}
+  - name: ETCH
+    hours: 5
+    tools: {ETCH-01: [A, B, C], ETCH-02: [A, B, C], ETCH-03: [A, B, C]}
+  - name: DEPOSITION
+    hours: 6
+    tools: {DEP-01: [A, B], DEP-02: [A, B]}
+  - name: CMP
+    hours: 4
+    tools: {CMP-01: [A, B], CMP-02: [A, B]}
+  - name: CLEAN  # 공통 병목: 모든 웨이퍼가 거친다
+    hours: 2
+    tools: {CLN-01: [A]}
