@@ -1,7 +1,7 @@
 
 # fabtrace
-data/
-models/
+/data/
+/models/
 .env
 .venv/
 __pycache__/
