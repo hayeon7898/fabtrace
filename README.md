@@ -2,18 +2,15 @@
 
 Wafer defect root-cause analysis and containment on a simulated fab, built on the public WM-811K wafer map dataset.
 
-A customer reports more Edge-Ring failures. fabtrace notices the excursion on a control chart, finds which process chamber the defective wafers have in common, and decides which lots to put on hold, the same flow a quality engineer follows in an 8D investigation. Because real fab data is not available, a known fault is injected into a simulated fab so that every step can be scored against the ground truth.
+A customer reports more Edge-Ring failures. fabtrace notices the excursion on a control chart, finds which process chamber the defective wafers have in common, and decides which lots to put on hold, the same flow a quality engineer follows in an 8D investigation.
 
-#### **Current results** (held-out seeds 0 to 9, see [E3](results/experiments/20261111-E3.md))
+Because real fab data is not available, a known fault is injected into a simulated fab so that every step can be scored against the ground truth.
 
-- Wafer map classifier:
-  - macro-F1 **0.80** and Edge-Ring recall **0.976** on 51,885 maps never used for training or model selection.
-- Root cause:
-   - whenever the excursion was detected, the statistical method ranked the true chamber **first in 8 of 8** seeds.
-   - A naive count of defective wafers was fooled by a bottleneck tool in 8 of 8.
-- Weak spots found on held-out seeds:
-  - excursion detection 8/10, containment lot recall 0.79 on detected seeds.
-  - Chamber-level monitoring to fix both is in progress ([spec 04](docs/specs/04-chamber-monitoring.md)).
+#### Current results (held-out seeds 0 to 9, see [E3](results/experiments/20261111-E3.md))
+
+- **Wafer map classifier:** macro-F1 **0.80** and Edge-Ring recall **0.976** on 51,885 maps never used for training or model selection.
+- **Root cause:** whenever the excursion was detected, the statistical method ranked the true chamber **first in 8 of 8** seeds. A naive count of defective wafers was fooled by a bottleneck tool in 8 of 8.
+- **Weak spots:** excursion detection 8/10, containment lot recall 0.79 on detected seeds. Chamber-level monitoring to fix both is in progress ([spec 04](docs/specs/04-chamber-monitoring.md)).
 
 ## Repository layout
 
@@ -40,12 +37,15 @@ fabtrace/
     └── figures/
 ```
 
-#### Key documents:
-Design decisions and their reasoning are recorded in each pull request and, for the larger ones, in issue comments.
+## Key documents
 
-1. Specs: [01 virtual fab](docs/specs/01-virtual-fab.md) · [02 classifier](docs/specs/02-wafermap-classifier.md) · [03 commonality and containment](docs/specs/03-commonality-containment.md) · [04 chamber monitoring](docs/specs/04-chamber-monitoring.md)
-2. Experiments: [E1 simulation sanity](results/experiments/20261108-E1.md) · [E2 class balancing](results/experiments/20261111-E2.md) · [E3 held-out seeds](results/experiments/20261111-E3.md)
-3. Reports: [classifier](results/reports/classifier_report.md) · [S1 root cause, seed 42](results/reports/s1_rca.md) · [E3 per-seed table](results/reports/e3_summary.md)
+| Type | Documents |
+| --- | --- |
+| Specs | [01 virtual fab](docs/specs/01-virtual-fab.md) · [02 classifier](docs/specs/02-wafermap-classifier.md) · [03 commonality and containment](docs/specs/03-commonality-containment.md) · [04 chamber monitoring](docs/specs/04-chamber-monitoring.md) |
+| Experiments | [E1 simulation sanity](results/experiments/20261108-E1.md) · [E2 class balancing](results/experiments/20261111-E2.md) · [E3 held-out seeds](results/experiments/20261111-E3.md) |
+| Reports | [classifier](results/reports/classifier_report.md) · [S1 root cause, seed 42](results/reports/s1_rca.md) · [E3 per-seed table](results/reports/e3_summary.md) |
+
+Design decisions and their reasoning are recorded in each pull request and, for the larger ones, in issue comments.
 
 ## How it works
 
@@ -74,8 +74,8 @@ The analysis runs in four steps, using only classifier predictions rather than g
 
 #### Step 1. Wafer Map Classification
 
-- Classify each wafer map using a lightweight CNN (cnn_v1, approximately 100K parameters). T
-- he virtual fab uses maps from a 30% split that the classifier never sees during training.
+- Classify each wafer map using a lightweight CNN (`cnn_v1`, approximately 100K parameters).
+- The virtual fab uses maps from a 30% split that the classifier never sees during training.
 
 #### Step 2. Defect Monitoring
 
@@ -128,7 +128,12 @@ A test verifies that shuffling the ground-truth columns leaves the analysis outp
 
 ## Results
 
-**Classifier** ([report](results/reports/classifier_report.md), [E2](results/experiments/20261111-E2.md)). Evaluated on 51,885 maps never used for training or model selection. Without class balancing the model never predicts Scratch at all.
+### 1. Classifier
+
+[Report](results/reports/classifier_report.md) · [E2](results/experiments/20261111-E2.md)
+
+- **Evaluation set:** 51,885 maps never used for training or model selection.
+- **Class balancing matters:** without it, the model never predicts Scratch at all.
 
 | Model | Class balancing | macro-F1 | Edge-Ring recall | Scratch recall |
 | --- | --- | --- | --- | --- |
@@ -137,20 +142,32 @@ A test verifies that shuffling the ground-truth columns leaves the analysis outp
 
 <img src="results/figures/confusion_cnn_v1.png" width="480" alt="cnn_v1 confusion matrix">
 
-**Root cause on the development seed** ([report](results/reports/s1_rca.md)). On seed 42 only the Edge-Ring chart raised an excursion (fab-out days 13 to 18). Among 1,201 wafers in that window:
+### 2. Root Cause on the Development Seed (42)
+
+[Report](results/reports/s1_rca.md)
+
+- **Excursion:** only the Edge-Ring chart raised an excursion (fab-out days 13 to 18).
+- **Analysis window:** 1,201 wafers in that window.
 
 | Method | Rank 1 | True chamber ETCH-03/B |
 | --- | --- | --- |
 | A: count of defective wafers passed | CLN-01/A (bottleneck, all wafers) | rank 2 |
 | B: lift + Fisher + BH | ETCH-03/B, lift 3.42, q < 0.0001 | **rank 1, the only significant chamber** |
 
-The runner-up CMP-02/A had p = 0.009 and would have been a false cause without multiple testing correction (q = 0.11). Over the whole 40 days the true chamber ranks only 17th of 26 by raw count, because ETCH chambers each handle 11% of wafers while other chambers handle 25% ([E1](results/experiments/20261108-E1.md)).
+#### Key observations
+
+- **Multiple testing correction prevents a false cause:** the runner-up CMP-02/A had p = 0.009 and would have been named a cause without correction (q = 0.11).
+- **Raw counts are misleading:** over the whole 40 days the true chamber ranks only 17th of 26 by raw count, because ETCH chambers each handle 11% of wafers while other chambers handle 25% ([E1](results/experiments/20261108-E1.md)).
 
 <img src="results/figures/s1_rca_p_chart_edgering_13_18.png" width="640" alt="p-chart for Edge-Ring">
 
 <img src="results/figures/s1_rca_commonality_edgering_13_18.png" width="720" alt="Method A versus method B">
 
-**Held-out seeds** ([summary](results/reports/e3_summary.md), [E3](results/experiments/20261111-E3.md)). Seed 42 was used to tune rules and margins, so performance is measured on new seeds 0 to 9.
+### 3. Held-out Seeds (0 to 9)
+
+[Summary](results/reports/e3_summary.md) · [E3](results/experiments/20261111-E3.md)
+
+Seed 42 was used to tune rules and margins, so performance is measured on new seeds 0 to 9.
 
 | Stage | Result |
 | --- | --- |
@@ -162,13 +179,20 @@ The runner-up CMP-02/A had p = 0.009 and would have been a false cause without m
 
 <img src="results/figures/e3_ranks.png" width="560" alt="Rank of the true chamber by seed">
 
-Seed 42 turned out to be a lucky seed with a long excursion window. A fab-wide chart dilutes a single chamber's signal, and the exposure period taken from the chart's peak days is too short. Both are addressed in spec 04 and will be evaluated on fresh seeds 100 to 109.
+#### What the held-out seeds revealed
+
+- **Seed 42 was lucky:** it had a long excursion window, which the held-out seeds mostly do not.
+- **Diluted signal:** a fab-wide chart dilutes a single chamber's signal.
+- **Short exposure period:** the exposure period taken from the chart's peak days is too short.
+- **Next step:** both are addressed in [spec 04](docs/specs/04-chamber-monitoring.md) and will be evaluated on fresh seeds 100 to 109.
 
 ## Quick start
 
 Requires [uv](https://docs.astral.sh/uv/). Runs on CPU.
 
-**1. Prepare the data.** The original `LSWMD.pkl` is a Python 2 pickle that needs a lot of memory, so it is converted once on Kaggle and only the compact output is used locally.
+### 1. Prepare the Data
+
+The original `LSWMD.pkl` is a Python 2 pickle that needs a lot of memory, so it is converted once on Kaggle and only the compact output is used locally.
 
 - Open a Kaggle notebook, add the WM-811K dataset as input, and run `scripts/prepare_wm811k.py` ([notebook](https://www.kaggle.com/code/haye0njung/wm-811k-preprocessing)).
 - Download `wm811k_labeled_64.npz` and `wm811k_labeled_64.parquet` into `data/interim/`.
@@ -178,27 +202,38 @@ uv sync
 uv run python scripts/check_data.py
 ```
 
-**2. Generate the simulated fab.** Creates `genealogy.parquet`, `wafers.parquet`, and `ground_truth.json` in `data/processed/`. The same seed always produces the same data.
+### 2. Generate the Simulated Fab
+
+- **Output:** `genealogy.parquet`, `wafers.parquet`, and `ground_truth.json` in `data/processed/`.
+- **Reproducible:** the same seed always produces the same data.
 
 ```bash
 uv run python -m fabtrace.sim.generate --scenario configs/scenarios/s1.yaml --seed 42
 ```
 
-**3. Train and evaluate the classifier.** About 10 minutes per model on an 8-thread CPU. Pretrained weights are attached to the GitHub release `v0.2-classifier`; place them in `models/` and run `scripts/evaluate_classifier.py` to reproduce the report without training.
+### 3. Train and Evaluate the Classifier
+
+- **Training time:** about 10 minutes per model on an 8-thread CPU.
+- **Skip training:** pretrained weights are attached to the GitHub release `v0.2-classifier`. Place them in `models/` and run `scripts/evaluate_classifier.py` to reproduce the report.
 
 ```bash
 uv run python scripts/train_classifier.py --seed 42
 uv run python scripts/train_classifier.py --seed 42 --no-balance
 ```
 
-**4. Run the root cause analysis.**
+### 4. Run the Root Cause Analysis
+
+- `run_rca.py` analyzes one seed and writes `results/reports/s1_rca.md`.
+- `run_e3.py` runs held-out seeds 0 to 9 (about 5 minutes).
 
 ```bash
-uv run python scripts/run_rca.py --scenario s1 --seed 42   # one seed, writes results/reports/s1_rca.md
-uv run python scripts/run_e3.py                            # seeds 0-9, about 5 minutes
+uv run python scripts/run_rca.py --scenario s1 --seed 42
+uv run python scripts/run_e3.py
 ```
 
-**Tests.** CI runs the same tests on every pull request; tests that need the real dataset are skipped there.
+### Tests
+
+CI runs the same tests on every pull request; tests that need the real dataset are skipped there.
 
 ```bash
 uv run pytest
@@ -206,8 +241,13 @@ uv run pytest
 
 ## Limitations
 
-- **Synthetic genealogy.** Wafer maps are real, but lot history and fault timing are simulated. A real fab would score against engineer-confirmed root causes instead.
-- **One scenario.** Only S1 (a single chamber, one pattern) is evaluated so far.
-- **Detection and containment on held-out seeds.** See the held-out results above; spec 04 targets both.
-- **Monitoring is retrospective.** Defects are known only after fab-out and classification, so containment works on lots already past the suspect chamber.
-- **Downsized maps.** Maps are reduced to 64x64, which makes small local defects (Loc, Scratch) harder to separate from normal wafers.
+### Data
+
+- **Synthetic genealogy:** wafer maps are real, but lot history and fault timing are simulated. A real fab would score against engineer-confirmed root causes instead.
+- **Downsized maps:** maps are reduced to 64x64, which makes small local defects (Loc, Scratch) harder to separate from normal wafers.
+
+### Evaluation and Method
+
+- **One scenario:** only S1 (a single chamber, one pattern) is evaluated so far.
+- **Detection and containment on held-out seeds:** see the held-out results above; [spec 04](docs/specs/04-chamber-monitoring.md) targets both.
+- **Retrospective monitoring:** defects are known only after fab-out and classification, so containment works on lots already past the suspect chamber.
