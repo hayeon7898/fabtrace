@@ -7,7 +7,7 @@
 
 출력
   models/cnn_v1.pt (또는 cnn_v1_nobalance.pt)   가중치와 학습 설정, 기록
-  results/train_log_cnn_v1.csv                  에폭별 train loss, val macro-F1, 시간
+  results/logs/cnn_v1.csv                  에폭별 train loss, val macro-F1, 시간
 """
 
 import argparse
@@ -18,6 +18,11 @@ import torch
 
 from fabtrace.data.dataset import load_wafer_data
 from fabtrace.models.train import TrainConfig, fit
+
+try:  # 같은 scripts/ 폴더의 평가 스크립트
+    from evaluate_classifier import evaluate_all
+except ImportError:  # pragma: no cover
+    from scripts.evaluate_classifier import evaluate_all
 
 
 def main() -> None:
@@ -30,6 +35,7 @@ def main() -> None:
     parser.add_argument("--threads", type=int, help="torch CPU 스레드 수 (기본: torch 기본값)")
     parser.add_argument("--data", type=Path, default=Path("data/interim"))
     parser.add_argument("--name", help="출력 이름 (기본: cnn_v1 또는 cnn_v1_nobalance)")
+    parser.add_argument("--skip-eval", action="store_true", help="학습 후 평가와 예측 저장을 건너뜀")
     args = parser.parse_args()
 
     if args.threads:
@@ -42,10 +48,13 @@ def main() -> None:
     ckpt = fit(load_wafer_data(args.data), cfg)
 
     Path("models").mkdir(exist_ok=True)
-    Path("results").mkdir(exist_ok=True)
+    Path("results/logs").mkdir(parents=True, exist_ok=True)
     torch.save(ckpt, Path("models") / f"{name}.pt")
-    pd.DataFrame(ckpt["history"]).to_csv(Path("results") / f"train_log_{name}.csv", index=False)
+    pd.DataFrame(ckpt["history"]).to_csv(Path("results/logs") / f"{name}.csv", index=False)
     print(f"최고 val macro-F1 {ckpt['best_val_macro_f1']:.4f} (epoch {ckpt['best_epoch']}) -> models/{name}.pt")
+
+    if not args.skip_eval:
+        evaluate_all()
 
 
 if __name__ == "__main__":

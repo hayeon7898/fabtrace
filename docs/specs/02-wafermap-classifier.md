@@ -49,3 +49,21 @@
 | 필수 | 학습 스크립트, macro-F1, 예측 파일 |
 | 있으면 좋음 | 혼동행렬 그림 |
 | 미룸 | ResNet 비교, 임베딩 검색 |
+
+## 실험
+ 
+### E2. 불균형 대응 효과 확인
+ 
+- 관련 이슈: #15, #16
+- 스크립트: `scripts/train_classifier.py`, `scripts/evaluate_classifier.py`
+- 시나리오와 시드: 해당 없음 (분류기 학습 시드 42)
+
+**가설** 
+1. none 샘플링과 빈도 역수 제곱근 가중치를 쓴 모델이, 같은 에폭당 장수로 무작위 학습한 모델보다 fab 몫 macro-F1이 높다.
+2. 차이는 소수 클래스(Scratch, Random, Donut, Near-full) recall에서 크게 나타난다.
+3. 03에 직결되는 Edge-Ring recall은 두 모델 모두 높고, 불균형 대응 모델이 같거나 높다.
+
+**방법** 
+- 두 모델(`cnn_v1`, `cnn_v1_nobalance`)을 같은 시드와 같은 에폭당 장수로 학습한다.
+- 모델 선택은 val 몫 macro-F1로 하고, fab 몫 전체로 평가한다.
+- `results/classifier_report.md`의 요약 표, 클래스별 recall 비교 표, 혼동행렬을 비교한다.
