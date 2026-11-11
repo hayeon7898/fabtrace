@@ -4,11 +4,16 @@ Wafer defect root-cause analysis and containment on a simulated fab, built on th
 
 A customer reports more Edge-Ring failures. fabtrace notices the excursion on a control chart, finds which process chamber the defective wafers have in common, and decides which lots to put on hold, the same flow a quality engineer follows in an 8D investigation. Because real fab data is not available, a known fault is injected into a simulated fab so that every step can be scored against the ground truth.
 
-**Current results** (held-out seeds 0 to 9, see [E3](results/experiments/20261111-E3.md))
+#### **Current results** (held-out seeds 0 to 9, see [E3](results/experiments/20261111-E3.md))
 
-- Wafer map classifier: macro-F1 **0.80** and Edge-Ring recall **0.976** on 51,885 maps never used for training or model selection.
-- Root cause: whenever the excursion was detected, the statistical method ranked the true chamber **first in 8 of 8** seeds. A naive count of defective wafers was fooled by a bottleneck tool in 8 of 8.
-- Weak spots found on held-out seeds: excursion detection 8/10, containment lot recall 0.79 on detected seeds. Chamber-level monitoring to fix both is in progress ([spec 04](docs/specs/04-chamber-monitoring.md)).
+- Wafer map classifier:
+  - macro-F1 **0.80** and Edge-Ring recall **0.976** on 51,885 maps never used for training or model selection.
+- Root cause:
+   - whenever the excursion was detected, the statistical method ranked the true chamber **first in 8 of 8** seeds.
+   - A naive count of defective wafers was fooled by a bottleneck tool in 8 of 8.
+- Weak spots found on held-out seeds:
+  - excursion detection 8/10, containment lot recall 0.79 on detected seeds.
+  - Chamber-level monitoring to fix both is in progress ([spec 04](docs/specs/04-chamber-monitoring.md)).
 
 ## Repository layout
 
@@ -44,18 +49,59 @@ Design decisions and their reasoning are recorded in each pull request and, for 
 
 ## How it works
 
-Real fab data with lot genealogy is confidential, so WM-811K wafer maps are placed onto a simulated fab where the cause is known:
+### 1. Simulated Fab Environment
 
-- 8,000 wafers in 320 lots over 40 days pass through 6 process steps and 26 chambers. A lot enters one tool per step and its wafers are split across that tool's chambers.
-- One cleaning tool processes every wafer, a deliberate trap for naive analysis.
-- Scenario S1 makes chamber ETCH-03/B produce Edge-Ring defects for wafers etched on days 12 to 18. All other wafers follow the natural WM-811K class mix, so about 5% are Edge-Ring for no reason.
+Real fab data with lot genealogy is confidential, so WM-811K wafer maps are placed onto a simulated fab where the cause is known.
 
-The analysis then runs in four steps, using only classifier predictions. A test checks that shuffling the ground truth columns leaves the analysis output unchanged.
+- **Scale:** 8,000 wafers across 320 lots over 40 days
+- **Process:** 6 process steps and 26 chambers
+- **Lot routing:** Each lot enters one tool per step, and its wafers are split across that tool's chambers.
+- **Deliberate confounder:** One cleaning tool processes every wafer, creating a trap for naive analysis.
 
-1. **Classify** each wafer map with a small CNN (`cnn_v1`, about 100k parameters). Maps used in the virtual fab come from a 30% split that the classifier never sees.
-2. **Monitor** every defect pattern with a p-chart by fab-out day. Limits use exact binomial quantiles, and a 2-of-3 beyond 2 sigma rule catches gradual but sustained increases.
-3. **Find the common cause** among wafers in the excursion window: compare each chamber's defect rate with the rest of its step (lift), one-sided Fisher exact test, Benjamini-Hochberg correction.
-4. **Contain** by tracing every lot that passed the suspect chamber during the exposure period, with a 24-hour margin because shipping a bad lot costs more than re-inspecting a good one.
+### 2. Injected Defect Scenario (S1)
+
+The simulation introduces a known chamber-level defect to evaluate whether the analysis can identify its root cause.
+
+- **Suspect chamber:** ETCH-03/B
+- **Defect pattern:** Edge-Ring
+- **Exposure period:** Days 12–18
+- **Injected behavior:** Wafers etched in ETCH-03/B during this period develop Edge-Ring defects.
+- **Background noise:** All other wafers follow the natural WM-811K class distribution, where approximately 5% are Edge-Ring without any process-related cause.
+
+### 3. Analysis Pipeline
+
+The analysis runs in four steps, using only classifier predictions rather than ground-truth labels.
+
+#### Step 1. Wafer Map Classification
+
+- Classify each wafer map using a lightweight CNN (cnn_v1, approximately 100K parameters). T
+- he virtual fab uses maps from a 30% split that the classifier never sees during training.
+
+#### Step 2. Defect Monitoring
+
+Monitor each defect pattern using a p-chart grouped by fab-out day.
+
+- Control limits are calculated using exact binomial quantiles.
+- A 2-of-3 beyond 2 sigma rule detects gradual but sustained increases.
+
+#### Step 3. Root Cause Identification
+
+Identify the common cause among wafers in the excursion window.
+
+- Compare each chamber's defect rate against the rest of its process step using lift.
+- Apply a one-sided Fisher's exact test.
+- Correct for multiple comparisons using the Benjamini-Hochberg procedure.
+
+#### Step 4. Lot Containment
+
+- Trace every lot that passed through the suspect chamber during the exposure period.
+- A 24-hour margin is added to the exposure window because the cost of shipping a defective lot is higher than that of re-inspecting a good one.
+
+### 4. Validation
+
+A test verifies that shuffling the ground-truth columns leaves the analysis output unchanged, ensuring that the pipeline relies exclusively on classifier predictions rather than hidden labels.
+
+### 5. WM-811K Dataset
 
 <details>
 <summary>WM-811K class distribution and sample maps</summary>
