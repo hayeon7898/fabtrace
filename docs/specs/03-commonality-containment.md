@@ -27,12 +27,15 @@ Edge-Ring 클레임이 들어왔다고 가정하고, 원인 챔버를 찾고 출
 
 | 경로 | 내용 |
 | --- | --- |
+| `src/fabtrace/analysis/spc.py` | p 관리도, 이상 구간 탐지 |
 | `src/fabtrace/analysis/commonality.py` | 방법 A, B |
-| `src/fabtrace/analysis/containment.py` | 순방향 추적 |
-| `src/fabtrace/analysis/spc.py` | p 관리도 |
+| `src/fabtrace/analysis/containment.py` | 노출 기간 추정, 순방향 추적, 채점 |
+| `src/fabtrace/analysis/pipeline.py` | 감시, 공통성, 격리를 엮는 분석과 채점, 가상 팹 생성과 예측 |
+| `src/fabtrace/analysis/report.py` | 리포트, JSON, 그림 저장 |
 | `scripts/run_rca.py` | 분석 전체 실행 |
-| `results/s1_rca.md` | 방법 비교 표, 격리 로트 목록, 그림 경로 |
-| `results/figures/` | 공통성 비교 막대, p 관리도 |
+| `results/reports/s1_rca.md` | 감시 결과, 방법 비교 표, 격리 로트 목록, 채점 |
+| `results/reports/s1_rca.json` | 분석 결과(`analysis`)와 채점(`evaluation`). 스펙 05 입력은 `analysis`만 |
+| `results/figures/s1_rca_*.png` | p 관리도, 공통성 비교 막대 |
 
 ## 완료 기준
 
