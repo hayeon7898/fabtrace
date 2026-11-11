@@ -3,7 +3,9 @@
 - 날짜 기준: 웨이퍼의 팹 아웃 날짜(마지막 공정 시각). 불량은 웨이퍼 테스트 시점에 발견되기 때문이다.
 - 입력: 분류기 예측 패턴(pred_pattern)만 쓴다. 정답 컬럼은 받지 않는다.
 - 중심선: 관리한계 밖인 날을 빼고 다시 계산하는 반복 제거(SPC 1단계 방식).
-- 관리한계: 날짜마다 표본 크기 n에 따라 달라진다. sigma = sqrt(p(1-p)/n)
+- 관리한계: 날짜마다 표본 크기 n에 따라 달라진다. 정규 근사(p +- k sigma) 대신 이항분포의 정확한
+  분위수로 계산한다. 하루 기대 불량 수가 1장 미만인 드문 패턴(Near-full 등)에서 정규 근사는
+  불량 1장만 나와도 3sigma를 넘겨 오탐을 낸다. 꼬리 확률은 정규분포의 2sigma, 3sigma와 같게 맞춘다.
 - 이상 판정: 3sigma 초과 한 점(rule1) 또는 연속 3일 중 2일이 2sigma 초과(rule2).
   rule1만으로는 완만하게 지속되는 증가를 놓칠 수 있다는 근거는 이슈 #22 댓글에 있다.
 - 이상 구간: 이상인 날을 묶되, 사이에 max_gap일 이하로 빈 날은 같은 구간으로 잇는다.
@@ -17,6 +19,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
+from scipy.stats import binom  # noqa: E402
 
 PRED_COL = "pred_pattern"
 
@@ -44,21 +47,30 @@ def p_chart(counts: pd.DataFrame, max_iter: int = 20) -> pd.DataFrame:
     keep = pd.Series(True, index=chart.index)
     for _ in range(max_iter):
         center = chart.loc[keep, "defects"].sum() / chart.loc[keep, "n"].sum()
-        sigma = np.sqrt(center * (1 - center) / chart["n"])
-        inside = (chart["p"] <= center + 3 * sigma) & (chart["p"] >= center - 3 * sigma)
+        ucl3 = _upper_limit(chart["n"], center, TAIL_3SIGMA)
+        inside = chart["p"] <= ucl3
         if inside.equals(keep):
             break
         keep = inside
 
     chart["center"] = center
-    chart["sigma"] = sigma
-    chart["ucl3"] = center + 3 * sigma
-    chart["ucl2"] = center + 2 * sigma
-    chart["lcl3"] = (center - 3 * sigma).clip(lower=0)
+    chart["sigma"] = np.sqrt(center * (1 - center) / chart["n"])
+    chart["ucl3"] = _upper_limit(chart["n"], center, TAIL_3SIGMA)
+    chart["ucl2"] = _upper_limit(chart["n"], center, TAIL_2SIGMA)
     chart["rule1"] = chart["p"] > chart["ucl3"]
     chart["rule2"] = _two_of_three_above(chart["p"] > chart["ucl2"])
     chart["alarm"] = chart["rule1"] | chart["rule2"]
     return chart
+
+
+TAIL_3SIGMA = 0.00135  # 정규분포 3sigma 단측 꼬리 확률
+TAIL_2SIGMA = 0.02275  # 정규분포 2sigma 단측 꼬리 확률
+
+
+def _upper_limit(n: pd.Series, center: float, tail: float) -> pd.Series:
+    """P(X > k) <= tail 인 가장 작은 불량 수 k를 비율로 바꾼 값. 비율이 이 값을 넘으면 이상이다."""
+    k = binom.ppf(1 - tail, n.to_numpy(), center)
+    return pd.Series(k / n.to_numpy(), index=n.index)
 
 
 def _two_of_three_above(above: pd.Series) -> pd.Series:
