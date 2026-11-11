@@ -161,14 +161,15 @@ def run_evaluation(model_paths: list[Path], data: WaferData, wafers: pd.DataFram
                    predict_with: Path | None, results_dir: Path, processed_dir: Path) -> list[Evaluation]:
     fig_dir = results_dir / "figures"
     fig_dir.mkdir(parents=True, exist_ok=True)
+    (results_dir / "reports").mkdir(parents=True, exist_ok=True)
     evals = [evaluate_model(p, data) for p in model_paths]
 
     figures = {}
     for ev in evals:
         plot_confusion(ev, fig_dir / f"confusion_{ev.name}.png")
-        figures[f"{ev.name} 혼동행렬"] = f"figures/confusion_{ev.name}.png"
+        figures[f"{ev.name} 혼동행렬"] = f"../figures/confusion_{ev.name}.png"
     plot_learning_curves(evals, fig_dir / "classifier_learning_curves.png")
-    figures["val macro-F1 학습 곡선"] = "figures/classifier_learning_curves.png"
+    figures["val macro-F1 학습 곡선"] = "../figures/classifier_learning_curves.png"
 
     n_predicted = 0
     if predict_with is not None and wafers is not None:
@@ -178,5 +179,5 @@ def run_evaluation(model_paths: list[Path], data: WaferData, wafers: pd.DataFram
         n_predicted = len(preds)
 
     write_report(evals, Path(predict_with).stem if predict_with else None, n_predicted,
-                 figures, len(data.indices("fab")), results_dir / "classifier_report.md")
+                 figures, len(data.indices("fab")), results_dir / "reports" / "classifier_report.md")
     return evals

@@ -61,7 +61,7 @@ def test_predict_wafers_covers_all(tiny, models, wafers):
 
 def test_run_evaluation_writes_outputs(tiny, models, wafers, tmp_path):
     run_evaluation(models, tiny, wafers, models[0], tmp_path / "results", tmp_path / "processed")
-    report = (tmp_path / "results" / "classifier_report.md").read_text(encoding="utf-8")
+    report = (tmp_path / "results" / "reports" / "classifier_report.md").read_text(encoding="utf-8")
     assert "fab macro-F1" in report and "Edge-Ring recall" in report
     assert "정확도는 메인 지표로 쓰지 않는다" in report
     assert (tmp_path / "processed" / "predictions.parquet").exists()

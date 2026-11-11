@@ -3,7 +3,7 @@
 사용법: uv run python scripts/evaluate_classifier.py
 
 출력
-  results/classifier_report.md                 자동 생성 리포트
+  results/reports/classifier_report.md               자동 생성 리포트
   results/figures/confusion_<모델>.png          혼동행렬
   results/figures/classifier_learning_curves.png
   data/processed/predictions.parquet           가상 팹 예측 (--predict-with 모델)
@@ -39,7 +39,7 @@ def evaluate_all(models: list[Path] | None = None, predict_with: Path | None = D
         print("wafers.parquet가 없어 가상 팹 예측은 건너뜀 (fabtrace.sim.generate를 먼저 실행)")
     elif predict_with is not None:
         print(f"가상 팹 예측 {len(wafers):,}장 -> {processed_dir / 'predictions.parquet'} ({predict_with.stem})")
-    print(f"리포트 -> {results_dir / 'classifier_report.md'}")
+    print(f"리포트 -> {results_dir / 'reports' / 'classifier_report.md'}")
 
 
 def main() -> None:
