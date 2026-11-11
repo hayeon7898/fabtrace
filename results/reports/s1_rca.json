@@ -1,0 +1,168 @@
+{
+  "meta": {
+    "scenario": "S1",
+    "seed": 42,
+    "model": "cnn_v1",
+    "truth_chamber": "ETCH-03/B",
+    "truth_pattern": "Edge-Ring",
+    "truth_window": [
+      12,
+      18
+    ]
+  },
+  "analysis": {
+    "monitoring": {
+      "Edge-Ring": [
+        [
+          13,
+          18
+        ]
+      ],
+      "Edge-Loc": [],
+      "Center": [],
+      "Loc": [],
+      "Scratch": [],
+      "Random": [],
+      "Donut": [],
+      "Near-full": []
+    },
+    "findings": [
+      {
+        "pattern": "Edge-Ring",
+        "window_fab_out_days": [
+          13,
+          18
+        ],
+        "wafers_in_window": 1201,
+        "predicted_defects": 136,
+        "candidates": [
+          {
+            "rank": 1,
+            "chamber": "ETCH-03/B",
+            "passed": 142,
+            "defects": 55,
+            "defect_rate": 0.3873,
+            "lift": 3.42,
+            "p": 1.4112927922150968e-20,
+            "q": 3.6693612597592517e-19,
+            "significant": true
+          },
+          {
+            "rank": 2,
+            "chamber": "CMP-02/A",
+            "passed": 276,
+            "defects": 43,
+            "defect_rate": 0.1558,
+            "lift": 1.376,
+            "p": 0.008838319155918702,
+            "q": 0.11489814902694313,
+            "significant": false
+          },
+          {
+            "rank": 3,
+            "chamber": "ETCH-01/A",
+            "passed": 153,
+            "defects": 22,
+            "defect_rate": 0.1438,
+            "lift": 1.27,
+            "p": 0.128366119390854,
+            "q": 0.9892942865736799,
+            "significant": false
+          },
+          {
+            "rank": 4,
+            "chamber": "OX-02/A",
+            "passed": 297,
+            "defects": 39,
+            "defect_rate": 0.1313,
+            "lift": 1.16,
+            "p": 0.15219912101133537,
+            "q": 0.9892942865736799,
+            "significant": false
+          },
+          {
+            "rank": 5,
+            "chamber": "PH-02/A",
+            "passed": 365,
+            "defects": 45,
+            "defect_rate": 0.1233,
+            "lift": 1.089,
+            "p": 0.263346290491055,
+            "q": 1.0,
+            "significant": false
+          }
+        ],
+        "naive_top": {
+          "chamber": "CLN-01/A",
+          "defects": 136
+        },
+        "causes": [
+          "ETCH-03/B"
+        ],
+        "conclusion": "cause_identified",
+        "containment": [
+          {
+            "chamber": "ETCH-03/B",
+            "exposure_start": "2026-01-11T06:43:56",
+            "exposure_end": "2026-01-19T05:14:33",
+            "buffer_hours": 24,
+            "held_lots": [
+              "L0082",
+              "L0087",
+              "L0088",
+              "L0095",
+              "L0099",
+              "L0100",
+              "L0106",
+              "L0107",
+              "L0108",
+              "L0109",
+              "L0110",
+              "L0111",
+              "L0112",
+              "L0119",
+              "L0123",
+              "L0124",
+              "L0125",
+              "L0130",
+              "L0134",
+              "L0139",
+              "L0141"
+            ],
+            "recheck_wafers": 176
+          }
+        ]
+      }
+    ]
+  },
+  "evaluation": {
+    "note": "정답지로 채점한 값. 분석에는 쓰이지 않았다.",
+    "detected": true,
+    "false_alarm_windows_other_patterns": 0,
+    "window": [
+      13,
+      18
+    ],
+    "rank_a": 2,
+    "rank_b": 1,
+    "top1_a": false,
+    "top1_b": true,
+    "top3_b": true,
+    "bottleneck_top1_a": true,
+    "causes": [
+      "ETCH-03/B"
+    ],
+    "cause_found": true,
+    "false_causes": [],
+    "held_lots": 21,
+    "lot_precision": 0.9047619047619048,
+    "lot_recall": 1.0,
+    "missed_lots": [],
+    "extra_lots": [
+      "L0082",
+      "L0141"
+    ],
+    "wafer_precision": 0.9034090909090909,
+    "wafer_recall": 1.0
+  }
+}
