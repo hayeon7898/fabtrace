@@ -44,19 +44,37 @@ def analysis_dict(result: RCAResult) -> dict:
             "containment": [
                 {"chamber": c.chamber, "exposure_start": c.start.isoformat(), "exposure_end": c.end.isoformat(),
                  "buffer_hours": c.buffer_hours, "held_lots": c.lots, "recheck_wafers": int(len(c.wafers))}
-                for c in f.containments
+                | (_exposure_dict(f.exposures[i]) if f.exposures else {})
+                for i, c in enumerate(f.containments)
             ],
         })
-    return {
-        "monitoring": {p: [list(w) for w in ws] for p, ws in result.windows.items()},
-        "findings": findings,
-    }
+    out = {"monitoring": {p: [list(w) for w in ws] for p, ws in result.windows.items()}, "findings": findings}
+    # baseline 출력은 방법 선택 옵션이 생기기 전과 같게 둔다
+    return out if result.method == "baseline" else {"method": result.method} | out
+
+
+def _exposure_dict(ex) -> dict:
+    """노출 기간 재추정 정보. 날짜는 원인 챔버 통과 날짜 기준이다."""
+    return {"exposure_estimate": {
+        "method": ex.method,
+        "anchor_start": ex.anchor[0].isoformat(), "anchor_end": ex.anchor[1].isoformat(),
+        "chamber_runs_pass_days": [list(r) for r in ex.runs],
+        "selected_pass_days": list(ex.selected) if ex.selected else None,
+    }}
 
 
 def write_json(result: RCAResult, evaluation: dict, meta: dict, path: Path) -> None:
     payload = {"meta": meta, "analysis": analysis_dict(result),
                "evaluation": {"note": "정답지로 채점한 값. 분석에는 쓰이지 않았다.", **evaluation}}
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
+
+
+def _exposure_line(ex) -> str:
+    anchor = f"기존 방법 {ex.anchor[0]:%m-%d %H:%M} ~ {ex.anchor[1]:%m-%d %H:%M}"
+    if ex.selected is None:
+        return f"노출 기간 재추정: 겹치는 챔버 이상 구간 없음, {anchor}을 그대로 씀"
+    s, e = ex.selected
+    return f"노출 기간 재추정: 챔버 통과 {s}~{e}일차 이상 구간과 {anchor}을 합침"
 
 
 def plot_commonality(finding, cause: str | None, path: Path) -> None:
@@ -89,7 +107,8 @@ def write_report(result: RCAResult, evaluation: dict, meta: dict, name: str,
     L = [f"# 원인 분석 리포트: {meta['scenario']} (seed {meta['seed']})", "",
          "> `scripts/run_rca.py`가 자동 생성한다. 직접 고치지 말 것.", "",
          f"- 예측 모델: `{meta['model']}`",
-         f"- 격리 여유 시간: {result.buffer_hours:g}시간", "",
+         f"- 격리 여유 시간: {result.buffer_hours:g}시간",
+         *([f"- 격리 방법: `{result.method}`"] if result.method != "baseline" else []), "",
          "## 1. 감시: 패턴별 이상 구간 (팹 아웃 날짜 기준)", "",
          "| 패턴 | 이상 구간 |", "| --- | --- |"]
     for p, ws in result.windows.items():
@@ -116,9 +135,11 @@ def write_report(result: RCAResult, evaluation: dict, meta: dict, name: str,
         L += ["", f"![공통성 비교](../figures/{comm_png.name})", "", "### 결론과 격리 범위", ""]
         if not f.causes:
             L.append("유의한 원인 후보가 없다(q < 0.05). 원인 미확정, 추가 데이터가 필요하다.")
-        for c in f.containments:
-            L += [f"- 원인 후보 `{c.chamber}`: 노출 기간 {c.start:%m-%d %H:%M} ~ {c.end:%m-%d %H:%M} (여유 {c.buffer_hours:g}시간)",
-                  f"  - 출하 보류 로트 {len(c.lots)}개: {', '.join(c.lots)}",
+        for i, c in enumerate(f.containments):
+            L += [f"- 원인 후보 `{c.chamber}`: 노출 기간 {c.start:%m-%d %H:%M} ~ {c.end:%m-%d %H:%M} (여유 {c.buffer_hours:g}시간)"]
+            if f.exposures:
+                L.append(f"  - {_exposure_line(f.exposures[i])}")
+            L += [f"  - 출하 보류 로트 {len(c.lots)}개: {', '.join(c.lots)}",
                   f"  - 재검사 웨이퍼 {len(c.wafers)}장"]
 
     L += ["", "## 3. 채점 (여기만 정답지를 사용한다)", "",
