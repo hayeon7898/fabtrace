@@ -1,6 +1,7 @@
 """가상 팹 생성부터 예측, 관리도, 공통성 분석, 격리 범위까지 한 번에 실행하고 리포트를 만든다.
 
 사용법: uv run python scripts/run_rca.py --scenario s1 --seed 42
+        uv run python scripts/run_rca.py --scenario s1 --seed 42 --method exposure
 
 출력
   results/reports/s1_rca.md     리포트
@@ -12,7 +13,7 @@ import argparse
 from pathlib import Path
 
 from fabtrace.analysis.containment import DEFAULT_BUFFER_HOURS
-from fabtrace.analysis.pipeline import run_analysis, score_result, simulate_and_predict
+from fabtrace.analysis.pipeline import DEFAULT_METHOD, METHODS, run_analysis, score_result, simulate_and_predict
 from fabtrace.analysis.report import write_report
 from fabtrace.data.dataset import load_wafer_data
 
@@ -29,19 +30,23 @@ def main() -> None:
     parser.add_argument("--model", type=Path, default=Path("models/cnn_v1.pt"))
     parser.add_argument("--fab", type=Path, default=Path("configs/fab.yaml"))
     parser.add_argument("--buffer-hours", type=float, default=DEFAULT_BUFFER_HOURS)
+    parser.add_argument("--method", choices=METHODS, default=DEFAULT_METHOD, help="격리 범위를 정하는 방법")
     parser.add_argument("--data", type=Path, default=Path("data/interim"))
     args = parser.parse_args()
 
     sc_path = scenario_path(args.scenario)
     fab, genealogy, wafers, gt, predictions = simulate_and_predict(
         sc_path, args.fab, args.seed, load_wafer_data(args.data), args.model)
-    result = run_analysis(predictions, genealogy, fab.start_date, buffer_hours=args.buffer_hours)
+    result = run_analysis(predictions, genealogy, fab.start_date, buffer_hours=args.buffer_hours, method=args.method)
     evaluation = score_result(result, gt, wafers)
 
     meta = {"scenario": gt["scenario"], "seed": args.seed, "model": args.model.stem,
             "truth_chamber": gt["chamber"], "truth_pattern": gt["pattern"],
             "truth_window": [gt["window"]["start_day"], gt["window"]["end_day"]]}
     name = f"{gt['scenario'].lower()}_rca"
+    if args.method != DEFAULT_METHOD:  # baseline 출력 파일과 내용은 옵션이 생기기 전과 같게 둔다
+        meta["method"] = args.method
+        name += f"_{args.method}"
     paths = write_report(result, evaluation, meta, name, Path("results/reports"), Path("results/figures"))
 
     print(f"{gt['scenario']} seed {args.seed}: 감지 {evaluation['detected']}, 원인 후보 {evaluation.get('causes')}, "
