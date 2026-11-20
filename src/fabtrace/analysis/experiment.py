@@ -14,16 +14,16 @@ import numpy as np
 import pandas as pd
 
 from fabtrace.analysis.commonality import window_population
-from fabtrace.analysis.containment import contain, score
-from fabtrace.analysis.pipeline import run_analysis, score_result
+from fabtrace.analysis.containment import score
+from fabtrace.analysis.pipeline import DEFAULT_METHOD, contain_finding, run_analysis, score_result
 from fabtrace.analysis.spc import excursions
 
 BUFFERS = (0, 12, 24)
 
 
 def evaluate_seed(seed: int, genealogy: pd.DataFrame, wafers: pd.DataFrame, gt: dict,
-                  predictions: pd.DataFrame, start_date: str) -> dict:
-    result = run_analysis(predictions, genealogy, start_date, buffer_hours=24)
+                  predictions: pd.DataFrame, start_date: str, method: str = DEFAULT_METHOD) -> dict:
+    result = run_analysis(predictions, genealogy, start_date, buffer_hours=24, method=method)
     ev = score_result(result, gt, wafers)
     pattern, chamber = gt["pattern"], gt["chamber"]
     lo, hi = gt["window"]["start_day"], gt["window"]["end_day"]
@@ -58,7 +58,8 @@ def evaluate_seed(seed: int, genealogy: pd.DataFrame, wafers: pd.DataFrame, gt: 
             row |= {f"lot_precision_{b}h": 0.0, f"lot_recall_{b}h": 0.0, f"wafer_recall_{b}h": 0.0, f"held_lots_{b}h": 0}
             continue
         pop = window_population(predictions, genealogy, finding.window, start_date, pattern)
-        s = score(contain(pop, genealogy, chamber, b), gt["affected_lots"], truth_wafers)
+        c, _ = contain_finding(pop, predictions, genealogy, chamber, pattern, start_date, b, method)
+        s = score(c, gt["affected_lots"], truth_wafers)
         row |= {f"lot_precision_{b}h": s["lot_precision"], f"lot_recall_{b}h": s["lot_recall"],
                 f"wafer_recall_{b}h": s["wafer_recall"], f"held_lots_{b}h": s["held_lots"]}
     return row
