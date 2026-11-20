@@ -22,6 +22,8 @@ import pandas as pd  # noqa: E402
 from scipy.stats import binom  # noqa: E402
 
 PRED_COL = "pred_pattern"
+TAIL_3SIGMA = 0.00135  # 정규분포 3sigma 단측 꼬리 확률
+TAIL_2SIGMA = 0.02275  # 정규분포 2sigma 단측 꼬리 확률
 
 
 def fab_out_days(genealogy: pd.DataFrame, start_date: str) -> pd.Series:
@@ -41,30 +43,32 @@ def daily_counts(predictions: pd.DataFrame, days: pd.Series, pattern: str) -> pd
     return out
 
 
-def p_chart(counts: pd.DataFrame, max_iter: int = 20) -> pd.DataFrame:
-    """중심선을 반복 제거로 추정하고, 날짜별 관리한계와 이상 판정을 붙인다."""
+def p_chart(counts: pd.DataFrame, max_iter: int = 20, center: float | None = None,
+            tail3: float = TAIL_3SIGMA, tail2: float = TAIL_2SIGMA) -> pd.DataFrame:
+    """중심선을 반복 제거로 추정하고, 날짜별 관리한계와 이상 판정을 붙인다.
+
+    center를 주면 추정하지 않고 그 값을 쓴다. tail3, tail2는 rule1, rule2 관리한계의 꼬리 확률이다.
+    """
     chart = counts.copy()
-    keep = pd.Series(True, index=chart.index)
-    for _ in range(max_iter):
-        center = chart.loc[keep, "defects"].sum() / chart.loc[keep, "n"].sum()
-        ucl3 = _upper_limit(chart["n"], center, TAIL_3SIGMA)
-        inside = chart["p"] <= ucl3
-        if inside.equals(keep):
-            break
-        keep = inside
+    if center is None:
+        keep = pd.Series(True, index=chart.index)
+        for _ in range(max_iter):
+            center = chart.loc[keep, "defects"].sum() / chart.loc[keep, "n"].sum()
+            ucl3 = _upper_limit(chart["n"], center, tail3)
+            inside = chart["p"] <= ucl3
+            if inside.equals(keep):
+                break
+            keep = inside
 
     chart["center"] = center
     chart["sigma"] = np.sqrt(center * (1 - center) / chart["n"])
-    chart["ucl3"] = _upper_limit(chart["n"], center, TAIL_3SIGMA)
-    chart["ucl2"] = _upper_limit(chart["n"], center, TAIL_2SIGMA)
+    chart["ucl3"] = _upper_limit(chart["n"], center, tail3)
+    chart["ucl2"] = _upper_limit(chart["n"], center, tail2)
     chart["rule1"] = chart["p"] > chart["ucl3"]
     chart["rule2"] = _two_of_three_above(chart["p"] > chart["ucl2"])
     chart["alarm"] = chart["rule1"] | chart["rule2"]
     return chart
 
-
-TAIL_3SIGMA = 0.00135  # 정규분포 3sigma 단측 꼬리 확률
-TAIL_2SIGMA = 0.02275  # 정규분포 2sigma 단측 꼬리 확률
 
 
 def _upper_limit(n: pd.Series, center: float, tail: float) -> pd.Series:
