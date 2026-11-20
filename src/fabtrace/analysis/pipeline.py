@@ -4,6 +4,11 @@
 - 불량 패턴 8개를 모두 관리도로 감시하고, 이상 구간이 나온 패턴만 공통성 분석을 한다.
 - 방법 B에서 유의한 챔버를 모두 원인 후보로 보고 각각 격리 범위를 정한다. 없으면 원인 미확정.
 - simulate_and_predict는 시드로 가상 팹을 만들고 분류기로 예측한다. E3가 시드만 바꿔 재사용한다.
+- method로 격리 범위를 정하는 방법을 고른다. E4가 같은 입력에 방법만 바꿔 비교한다.
+  - baseline: 이상 구간 웨이퍼가 원인 챔버를 지난 시각으로 노출 기간을 정한다 (E3와 같음).
+  - exposure: 원인 챔버의 통과 날짜별 관리도로 노출 기간을 다시 잡는다 (스펙 04 범위 A).
+  - exposure+chamber: 챔버 단위 감시를 더한다 (스펙 04 범위 B, #36에서 구현).
+  감시와 공통성 분석은 baseline과 exposure가 같다. exposure는 격리 범위만 바꾼다.
 """
 
 from dataclasses import dataclass, field
@@ -13,10 +18,13 @@ import pandas as pd
 
 from fabtrace.analysis.commonality import analyze, rank_of
 from fabtrace.analysis.containment import DEFAULT_BUFFER_HOURS, Containment, contain, score
+from fabtrace.analysis.exposure import ChamberExposure, contain_by_chamber
 from fabtrace.analysis.spc import PRED_COL, detect
 from fabtrace.data.wm811k import CLASSES
 
 DEFECT_PATTERNS = [c for c in CLASSES if c != "none"]
+METHODS = ("baseline", "exposure", "exposure+chamber")
+DEFAULT_METHOD = "baseline"
 
 
 @dataclass
@@ -29,22 +37,43 @@ class Finding:
     ranking_b: pd.DataFrame
     causes: list[str]
     containments: list[Containment]
+    exposures: list[ChamberExposure] = field(default_factory=list)  # exposure 모드에서만, containments와 같은 순서
 
 
 @dataclass
 class RCAResult:
     start_date: str
     buffer_hours: float
+    method: str = DEFAULT_METHOD
     charts: dict[str, pd.DataFrame] = field(default_factory=dict)
     windows: dict[str, list[tuple[int, int]]] = field(default_factory=dict)
     findings: list[Finding] = field(default_factory=list)
 
 
+def check_method(method: str) -> None:
+    if method not in METHODS:
+        raise ValueError(f"알 수 없는 방법 {method!r}. 가능한 값: {', '.join(METHODS)}")
+    if method == "exposure+chamber":
+        raise NotImplementedError("exposure+chamber(챔버 단위 감시)는 #36에서 구현한다")
+
+
+def contain_finding(population: pd.DataFrame, predictions: pd.DataFrame, genealogy: pd.DataFrame,
+                    chamber: str, pattern: str, start_date: str, buffer_hours: float,
+                    method: str = DEFAULT_METHOD) -> tuple[Containment, ChamberExposure | None]:
+    """원인 후보 하나의 격리 범위. 방법 선택은 여기 한 곳에서만 한다."""
+    check_method(method)
+    if method == "baseline":
+        return contain(population, genealogy, chamber, buffer_hours), None
+    return contain_by_chamber(population, predictions, genealogy, chamber, pattern, start_date, buffer_hours)
+
+
 def run_analysis(predictions: pd.DataFrame, genealogy: pd.DataFrame, start_date: str,
                  patterns: list[str] = DEFECT_PATTERNS,
-                 buffer_hours: float = DEFAULT_BUFFER_HOURS) -> RCAResult:
+                 buffer_hours: float = DEFAULT_BUFFER_HOURS,
+                 method: str = DEFAULT_METHOD) -> RCAResult:
+    check_method(method)
     preds = predictions[["wafer_id", PRED_COL]]  # 예측 외의 컬럼은 들여오지 않는다
-    result = RCAResult(start_date=start_date, buffer_hours=buffer_hours)
+    result = RCAResult(start_date=start_date, buffer_hours=buffer_hours, method=method)
     for pattern in patterns:
         chart, windows = detect(preds, genealogy, pattern, start_date)
         result.charts[pattern], result.windows[pattern] = chart, windows
@@ -52,11 +81,14 @@ def run_analysis(predictions: pd.DataFrame, genealogy: pd.DataFrame, start_date:
             res = analyze(preds, genealogy, window, start_date, pattern)
             b = res["B"]
             causes = b.loc[b["significant"], "chamber"].tolist()
+            contained = [contain_finding(res["population"], preds, genealogy, ch, pattern, start_date,
+                                         buffer_hours, method) for ch in causes]
             result.findings.append(Finding(
                 pattern=pattern, window=window,
                 population=len(res["population"]), defects=int(res["population"]["is_defect"].sum()),
                 ranking_a=res["A"], ranking_b=b, causes=causes,
-                containments=[contain(res["population"], genealogy, ch, buffer_hours) for ch in causes],
+                containments=[c for c, _ in contained],
+                exposures=[e for _, e in contained if e is not None],
             ))
     return result
 
