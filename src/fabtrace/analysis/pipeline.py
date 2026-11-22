@@ -7,8 +7,12 @@
 - method로 격리 범위를 정하는 방법을 고른다. E4가 같은 입력에 방법만 바꿔 비교한다.
   - baseline: 이상 구간 웨이퍼가 원인 챔버를 지난 시각으로 노출 기간을 정한다 (E3와 같음).
   - exposure: 원인 챔버의 통과 날짜별 관리도로 노출 기간을 다시 잡는다 (스펙 04 범위 A).
-  - exposure+chamber: 챔버 단위 감시를 더한다 (스펙 04 범위 B, #36에서 구현).
+  - exposure+chamber: exposure에 챔버 단위 감시를 더한다 (스펙 04 범위 B).
   감시와 공통성 분석은 baseline과 exposure가 같다. exposure는 격리 범위만 바꾼다.
+- exposure+chamber는 공장 전체 감시가 끝난 뒤 챔버 감시를 돌린다. 알림을 팹 아웃 구간으로 바꿔 공통성
+  분석으로 확인하고(chamber_monitor.confirm_alarm), 알린 날이 2일 이상이고 확인된 알림만 source="chamber"인 Finding으로 더한다.
+  공장 전체 Finding이 같은 챔버를 원인으로 이미 냈고 구간이 겹치면 건너뛴다. 챔버 Finding은 항상
+  공장 전체 Finding 뒤에 붙으므로, 공장 전체가 찾은 결과와 채점은 exposure와 같다.
 """
 
 from dataclasses import dataclass, field
@@ -16,6 +20,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from fabtrace.analysis.chamber_monitor import (MIN_ALARM_DAYS, ChamberMonitor, alarm_windows, confirm_alarm,
+                                              monitor)
 from fabtrace.analysis.commonality import analyze, rank_of
 from fabtrace.analysis.containment import DEFAULT_BUFFER_HOURS, Containment, contain, score
 from fabtrace.analysis.exposure import ChamberExposure, contain_by_chamber
@@ -38,6 +44,8 @@ class Finding:
     causes: list[str]
     containments: list[Containment]
     exposures: list[ChamberExposure] = field(default_factory=list)  # exposure 모드에서만, containments와 같은 순서
+    source: str = "fab"          # fab: 공장 전체 관리도, chamber: 챔버 감시 알림
+    alarm: dict | None = None    # source가 chamber일 때 확인한 알림 (chamber_monitor.WINDOW_COLUMNS)
 
 
 @dataclass
@@ -48,13 +56,13 @@ class RCAResult:
     charts: dict[str, pd.DataFrame] = field(default_factory=dict)
     windows: dict[str, list[tuple[int, int]]] = field(default_factory=dict)
     findings: list[Finding] = field(default_factory=list)
+    chamber_monitor: ChamberMonitor | None = None  # exposure+chamber에서만
+    chamber_alarms: pd.DataFrame | None = None     # 알림별 팹 아웃 구간과 처리 결과(status)
 
 
 def check_method(method: str) -> None:
     if method not in METHODS:
         raise ValueError(f"알 수 없는 방법 {method!r}. 가능한 값: {', '.join(METHODS)}")
-    if method == "exposure+chamber":
-        raise NotImplementedError("exposure+chamber(챔버 단위 감시)는 #36에서 구현한다")
 
 
 def contain_finding(population: pd.DataFrame, predictions: pd.DataFrame, genealogy: pd.DataFrame,
@@ -83,14 +91,49 @@ def run_analysis(predictions: pd.DataFrame, genealogy: pd.DataFrame, start_date:
             causes = b.loc[b["significant"], "chamber"].tolist()
             contained = [contain_finding(res["population"], preds, genealogy, ch, pattern, start_date,
                                          buffer_hours, method) for ch in causes]
-            result.findings.append(Finding(
-                pattern=pattern, window=window,
-                population=len(res["population"]), defects=int(res["population"]["is_defect"].sum()),
-                ranking_a=res["A"], ranking_b=b, causes=causes,
-                containments=[c for c, _ in contained],
-                exposures=[e for _, e in contained if e is not None],
-            ))
+            result.findings.append(_finding(pattern, window, res, causes, contained))
+    if method == "exposure+chamber":
+        _add_chamber_findings(result, preds, genealogy, patterns)
     return result
+
+
+def _finding(pattern, window, res, causes, contained, **extra) -> Finding:
+    return Finding(
+        pattern=pattern, window=window,
+        population=len(res["population"]), defects=int(res["population"]["is_defect"].sum()),
+        ranking_a=res["A"], ranking_b=res["B"], causes=causes,
+        containments=[c for c, _ in contained],
+        exposures=[e for _, e in contained if e is not None], **extra,
+    )
+
+
+def _covered(findings: list[Finding], pattern: str, chamber: str, window: tuple[int, int]) -> bool:
+    """같은 패턴에서 이 챔버를 원인으로 이미 낸 Finding이 있고 구간이 겹치는가."""
+    return any(f.pattern == pattern and chamber in f.causes and f.window[0] <= window[1] and f.window[1] >= window[0]
+               for f in findings)
+
+
+def _add_chamber_findings(result: RCAResult, preds: pd.DataFrame, genealogy: pd.DataFrame,
+                          patterns: list[str]) -> None:
+    centers = {p: float(result.charts[p]["center"].iloc[0]) for p in patterns}
+    result.chamber_monitor = monitor(preds, genealogy, result.start_date, patterns, centers=centers)
+    alarms = alarm_windows(result.chamber_monitor.alarms, genealogy, result.start_date)
+    status = []
+    for a in alarms.to_dict("records"):
+        pattern, chamber, window = a["pattern"], a["chamber"], (a["fab_out_start"], a["fab_out_end"])
+        if _covered(result.findings, pattern, chamber, window):
+            status.append("covered")
+            continue
+        if a["alarm_days"] < MIN_ALARM_DAYS:
+            status.append("short")
+            continue
+        ok, res = confirm_alarm(preds, genealogy, window, result.start_date, pattern, chamber)
+        status.append("confirmed" if ok else "rejected")
+        if ok:
+            contained = [contain_finding(res["population"], preds, genealogy, chamber, pattern, result.start_date,
+                                         result.buffer_hours, result.method)]
+            result.findings.append(_finding(pattern, window, res, [chamber], contained, source="chamber", alarm=a))
+    result.chamber_alarms = alarms.assign(status=status)
 
 
 def score_result(result: RCAResult, ground_truth: dict, wafers: pd.DataFrame) -> dict:

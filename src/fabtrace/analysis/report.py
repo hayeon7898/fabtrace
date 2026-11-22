@@ -41,6 +41,7 @@ def analysis_dict(result: RCAResult) -> dict:
             "naive_top": {"chamber": f.ranking_a.iloc[0]["chamber"], "defects": int(f.ranking_a.iloc[0]["defect_passed"])},
             "causes": f.causes,
             "conclusion": "cause_identified" if f.causes else "root_cause_not_confirmed",
+            **({"source": "chamber", "alarm": _alarm_dict(f.alarm)} if f.source == "chamber" else {}),
             "containment": [
                 {"chamber": c.chamber, "exposure_start": c.start.isoformat(), "exposure_end": c.end.isoformat(),
                  "buffer_hours": c.buffer_hours, "held_lots": c.lots, "recheck_wafers": int(len(c.wafers))}
@@ -49,8 +50,21 @@ def analysis_dict(result: RCAResult) -> dict:
             ],
         })
     out = {"monitoring": {p: [list(w) for w in ws] for p, ws in result.windows.items()}, "findings": findings}
+    if result.chamber_monitor is not None:
+        m = result.chamber_monitor
+        out["chamber_monitoring"] = {"budget": m.budget, "points": m.n_points, "tail": m.tail,
+                                     "alarms": [_alarm_dict(a) for a in result.chamber_alarms.to_dict("records")]}
     # baseline 출력은 방법 선택 옵션이 생기기 전과 같게 둔다
     return out if result.method == "baseline" else {"method": result.method} | out
+
+
+def _alarm_dict(a: dict) -> dict:
+    """챔버 감시 알림. pass_days는 그 챔버 통과 날짜, fab_out_days는 공통성 분석에 쓴 구간이다."""
+    return {"chamber": a["chamber"], "pattern": a["pattern"],
+            "pass_days": [int(a["start_day"]), int(a["end_day"])],
+            "fab_out_days": [int(a["fab_out_start"]), int(a["fab_out_end"])],
+            "alarm_days": int(a["alarm_days"]), "max_p": round(float(a["max_p"]), 4),
+            "center": round(float(a["center"]), 4)} | ({"status": a["status"]} if "status" in a else {})
 
 
 def _exposure_dict(ex) -> dict:
@@ -75,6 +89,24 @@ def _exposure_line(ex) -> str:
         return f"노출 기간 재추정: 겹치는 챔버 이상 구간 없음, {anchor}을 그대로 씀"
     s, e = ex.selected
     return f"노출 기간 재추정: 챔버 통과 {s}~{e}일차 이상 구간과 {anchor}을 합침"
+
+
+STATUS_KO = {"confirmed": "원인 확인", "rejected": "거부 (방법 B 1위 아님 또는 유의하지 않음)",
+             "covered": "공장 전체 감시가 이미 찾음", "short": "확인하지 않음 (알린 날 2일 미만)"}
+
+
+def _chamber_section(result) -> list[str]:
+    m = result.chamber_monitor
+    L = ["", "### 챔버 감시 알림 (챔버 통과 날짜 기준)", "",
+         f"감시 점 {m.n_points:,}개, 오탐 예산 {m.budget:g}, 꼬리 확률 {m.tail:.2e}. "
+         "알림만으로 원인을 확정하지 않고, 팹 아웃 구간으로 바꿔 공통성 분석으로 확인한다.", ""]
+    if result.chamber_alarms.empty:
+        return L + ["알림 없음."]
+    L += ["| 패턴 | 챔버 | 통과 날짜 | 팹 아웃 구간 | 최대 불량률 | 처리 |", "| --- | --- | --- | --- | --- | --- |"]
+    for a in result.chamber_alarms.to_dict("records"):
+        L.append(f"| {a['pattern']} | {a['chamber']} | {a['start_day']}~{a['end_day']}일차 "
+                 f"| {a['fab_out_start']}~{a['fab_out_end']}일차 | {_f(a['max_p'])} | {STATUS_KO[a['status']]} |")
+    return L
 
 
 def plot_commonality(finding, cause: str | None, path: Path) -> None:
@@ -113,16 +145,24 @@ def write_report(result: RCAResult, evaluation: dict, meta: dict, name: str,
          "| 패턴 | 이상 구간 |", "| --- | --- |"]
     for p, ws in result.windows.items():
         L.append(f"| {p} | {', '.join(f'{s}~{e}일차' for s, e in ws) if ws else '없음'} |")
+    if result.chamber_monitor is not None:
+        L += _chamber_section(result)
 
     for i, f in enumerate(result.findings, 1):
         tag = f"{f.pattern.lower().replace('-', '')}_{f.window[0]}_{f.window[1]}"
+        if f.source == "chamber":
+            tag += f"_{f.causes[0].replace('/', '').lower()}"
         chart_png, comm_png = figures_dir / f"{name}_p_chart_{tag}.png", figures_dir / f"{name}_commonality_{tag}.png"
         plot_p_chart(result.charts[f.pattern], result.windows[f.pattern], f.pattern, chart_png)
         plot_commonality(f, f.causes[0] if f.causes else None, comm_png)
         paths[f"p_chart_{i}"], paths[f"commonality_{i}"] = chart_png, comm_png
 
-        L += ["", f"## 2.{i} {f.pattern}, {f.window[0]}~{f.window[1]}일차", "",
-              f"구간에 팹 아웃된 웨이퍼 {f.population:,}장 중 예측 {f.pattern} {f.defects}장.", "",
+        L += ["", f"## 2.{i} {f.pattern}, {f.window[0]}~{f.window[1]}일차{' (챔버 감시)' if f.source == 'chamber' else ''}", ""]
+        if f.source == "chamber":
+            a = f.alarm
+            L += [f"챔버 감시가 `{a['chamber']}` 통과 {a['start_day']}~{a['end_day']}일차를 알렸다. "
+                  f"그 웨이퍼들이 팹 아웃된 {f.window[0]}~{f.window[1]}일차로 공통성 분석을 해서 확인했다.", ""]
+        L += [f"구간에 팹 아웃된 웨이퍼 {f.population:,}장 중 예측 {f.pattern} {f.defects}장.", "",
               f"![p 관리도](../figures/{chart_png.name})", "",
               "### 공통성 분석", "",
               f"방법 A(단순 집계) 1위: `{f.ranking_a.iloc[0]['chamber']}` (불량 웨이퍼 {int(f.ranking_a.iloc[0]['defect_passed'])}장 경유)", "",
