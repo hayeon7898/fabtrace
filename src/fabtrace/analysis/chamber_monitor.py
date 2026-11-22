@@ -20,17 +20,31 @@
   꼬리 확률보다 낮다.
 - 알림 구간: 알린 날을 하루 간격까지 잇는다. 그 챔버를 지난 웨이퍼가 없는 날은 간격으로 세지 않는다
   (exposure.chamber_runs). 오탐은 구간 단위로 센다.
+
+알림 확인(alarm_windows, confirm_alarm):
+- 알림 기간에 그 챔버를 지난 웨이퍼들의 실제 팹 아웃 날짜 범위를 공통성 분석 구간으로 쓴다.
+  같은 패턴과 챔버에서 팹 아웃 구간이 겹치는 알림은 하나로 합친다.
+- 그 구간의 방법 B에서 알린 챔버가 유의하고 1위일 때만 원인으로 확인한다. 원인과 함께 다니는 챔버
+  (같은 로트가 지난 다른 단계 챔버, 병목 설비)도 알림이 뜨는데, 같은 구간에서 진짜 원인이 1위로
+  나오므로 거부된다. 원인이 동시에 둘인 경우 두 번째 원인은 놓친다(스펙 04 비범위).
+- 알린 날이 MIN_ALARM_DAYS(2일)보다 적은 알림은 확인하지 않는다. 알림을 만든 웨이퍼가 공통성 분석
+  구간에 그대로 들어가므로, 우연한 하루 급증도 그 챔버의 lift가 높게 나와 유의해진다(같은 데이터로
+  고르고 검정하는 문제). 합성 데이터 50개에서 잘못 확인된 알림은 모두 하루짜리였고, 진짜 원인의
+  알림은 모두 2일 이상이었다. 하루만 지속되는 이상은 놓친다.
 """
 
 from dataclasses import dataclass, field
 
 import pandas as pd
 
+from fabtrace.analysis.commonality import analyze
 from fabtrace.analysis.exposure import chamber_runs
-from fabtrace.analysis.spc import PRED_COL, detect, p_chart
+from fabtrace.analysis.spc import PRED_COL, detect, fab_out_days, p_chart
 
 DEFAULT_BUDGET = 0.5
+MIN_ALARM_DAYS = 2
 ALARM_COLUMNS = ["pattern", "step", "chamber", "start_day", "end_day", "alarm_days", "max_p", "center"]
+WINDOW_COLUMNS = ALARM_COLUMNS + ["fab_out_start", "fab_out_end"]
 
 
 @dataclass
@@ -87,3 +101,44 @@ def monitor(predictions: pd.DataFrame, genealogy: pd.DataFrame, start_date: str,
     alarms = pd.DataFrame(rows, columns=ALARM_COLUMNS)
     alarms = alarms.sort_values(["pattern", "start_day", "chamber"]).reset_index(drop=True)
     return ChamberMonitor(budget, n_points, tail, centers, alarms, charts)
+
+
+def alarm_windows(alarms: pd.DataFrame, genealogy: pd.DataFrame, start_date: str) -> pd.DataFrame:
+    """알림마다 팹 아웃 구간을 붙이고, 같은 패턴과 챔버에서 팹 아웃 구간이 겹치는 알림을 합친다."""
+    if alarms.empty:
+        return pd.DataFrame(columns=WINDOW_COLUMNS)
+    out_day = fab_out_days(genealogy, start_date)
+    passes = genealogy[["wafer_id", "chamber", "ts"]].assign(
+        day=(genealogy["ts"].dt.normalize() - pd.Timestamp(start_date)).dt.days + 1)
+    rows = []
+    for _, a in alarms.iterrows():
+        w = passes.loc[(passes["chamber"] == a["chamber"]) & passes["day"].between(a["start_day"], a["end_day"]),
+                       "wafer_id"]
+        d = out_day.loc[w]
+        rows.append(a.to_dict() | {"fab_out_start": int(d.min()), "fab_out_end": int(d.max())})
+    df = pd.DataFrame(rows).sort_values(["pattern", "chamber", "fab_out_start"])
+
+    merged = []
+    for (_, _), g in df.groupby(["pattern", "chamber"], sort=False):
+        cur = None
+        for r in g.to_dict("records"):
+            if cur is not None and r["fab_out_start"] <= cur["fab_out_end"]:
+                cur |= {"end_day": max(cur["end_day"], r["end_day"]),
+                        "alarm_days": cur["alarm_days"] + r["alarm_days"],
+                        "max_p": max(cur["max_p"], r["max_p"]),
+                        "fab_out_end": max(cur["fab_out_end"], r["fab_out_end"])}
+            else:
+                if cur is not None:
+                    merged.append(cur)
+                cur = dict(r)
+        merged.append(cur)
+    out = pd.DataFrame(merged, columns=WINDOW_COLUMNS)
+    return out.sort_values(["pattern", "fab_out_start", "chamber"]).reset_index(drop=True)
+
+
+def confirm_alarm(predictions: pd.DataFrame, genealogy: pd.DataFrame, window: tuple[int, int],
+                  start_date: str, pattern: str, chamber: str) -> tuple[bool, dict[str, pd.DataFrame]]:
+    """알림 구간으로 공통성 분석을 돌려, 알린 챔버가 방법 B에서 유의하고 1위인지 본다."""
+    res = analyze(predictions, genealogy, window, start_date, pattern)
+    top = res["B"].iloc[0]
+    return bool(top["chamber"] == chamber and top["significant"]), res

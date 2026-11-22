@@ -4,7 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from fabtrace.analysis.chamber_monitor import ALARM_COLUMNS, monitor, pass_day_counts
+from fabtrace.analysis.chamber_monitor import (ALARM_COLUMNS, WINDOW_COLUMNS, alarm_windows, confirm_alarm, monitor,
+                                              pass_day_counts)
 from fabtrace.analysis.pipeline import DEFECT_PATTERNS
 from fabtrace.analysis.spc import detect
 from fabtrace.sim.genealogy import generate_genealogy
@@ -79,3 +80,32 @@ def test_finds_chamber_excursion_diluted_fab_wide(fab, s1, genealogy_seed, rng_s
     a = monitor(preds, g, fab.start_date, ["Edge-Ring"]).alarms
     cause = a[(a["chamber"] == s1.chamber) & (a["start_day"] <= 18) & (a["end_day"] >= 12)]
     assert len(cause) >= 1
+
+
+def test_alarm_windows_converts_to_fab_out_and_merges():
+    """E/B를 3일차에 지난 w1, w2는 5, 6일차에, 4일차에 지난 w3는 6일차에 팹 아웃된다."""
+    t0 = pd.Timestamp("2026-01-01")
+    day = lambda d: t0 + pd.Timedelta(days=d - 1, hours=1)  # noqa: E731
+    g = pd.DataFrame({
+        "wafer_id": ["w1", "w2", "w3", "w1", "w2", "w3"], "step": ["E"] * 3 + ["C"] * 3,
+        "chamber": ["E/B", "E/B", "E/B", "C/A", "C/A", "C/A"], "ts": [day(3), day(3), day(4), day(5), day(6), day(6)]})
+    row = {"pattern": "Edge-Ring", "step": "E", "chamber": "E/B", "max_p": 0.5, "center": 0.05}
+    alarms = pd.DataFrame([row | {"start_day": 3, "end_day": 3, "alarm_days": 1},
+                           row | {"start_day": 4, "end_day": 4, "alarm_days": 1, "max_p": 0.9}])
+    w = alarm_windows(alarms, g, "2026-01-01")
+    assert list(w.columns) == WINDOW_COLUMNS and len(w) == 1  # 팹 아웃 (5, 6)과 (6, 6)이 겹쳐 하나로 합친다
+    r = w.iloc[0]
+    assert (r["start_day"], r["end_day"], r["fab_out_start"], r["fab_out_end"]) == (3, 4, 5, 6)
+    assert r["alarm_days"] == 2 and r["max_p"] == 0.9
+
+
+def test_alarm_windows_empty():
+    assert alarm_windows(pd.DataFrame(columns=ALARM_COLUMNS), pd.DataFrame(), "2026-01-01").empty
+
+
+def test_confirm_alarm_accepts_cause_and_rejects_bottleneck(genealogy, fab, s1):
+    preds = s1_predictions(genealogy, fab, s1, 0)
+    ok, res = confirm_alarm(preds, genealogy, (13, 19), fab.start_date, "Edge-Ring", s1.chamber)
+    assert ok and res["B"].iloc[0]["chamber"] == s1.chamber
+    ok, _ = confirm_alarm(preds, genealogy, (13, 19), fab.start_date, "Edge-Ring", "CLN-01/A")
+    assert not ok  # 병목은 모든 웨이퍼가 지나가므로 비교 대상이 없다
