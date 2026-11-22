@@ -1,7 +1,8 @@
 import pandas as pd
 import pytest
 
-from fabtrace.analysis.experiment import BUFFERS, choose_buffer, evaluate_seed, summarize
+from fabtrace.analysis.experiment import (BUFFERS, E4_METHODS, choose_buffer, evaluate_methods, evaluate_seed,
+                                          judge_e4, summarize)
 from fabtrace.sim.genealogy import generate_genealogy
 from fabtrace.sim.inject import build_wafers, ground_truth
 
@@ -85,3 +86,52 @@ def test_choose_buffer_keeps_current_when_nothing_shorter_passes():
     real = _real({b: 1.0 for b in buffers})
     chosen, table = choose_buffer(real, synth, buffers)
     assert chosen == 24 and not table["passes"].any()
+
+
+@pytest.fixture(scope="module")
+def e4_rows(fab, s1):
+    counts = {"none": 11000, "Edge-Ring": 800, "Edge-Loc": 400, "Center": 350, "Loc": 300}
+    labels = [c for c, n in counts.items() for _ in range(n)]
+    pool = pd.DataFrame({"label": labels}, index=range(len(labels)))
+    gen = generate_genealogy(fab, 0)
+    wafers = build_wafers(gen, s1, fab, pool, 0)
+    preds = wafers[["wafer_id"]].assign(pred_pattern=wafers["true_pattern"])
+    gt = ground_truth(s1, fab, wafers, 0)
+    return evaluate_methods(0, gen, wafers, gt, preds, fab.start_date), evaluate_seed(
+        0, gen, wafers, gt, preds, fab.start_date)
+
+
+def test_evaluate_methods_adds_e4_metrics(e4_rows):
+    rows, base_row = e4_rows
+    assert [r["method"] for r in rows] == list(E4_METHODS)
+    base = rows[0]
+    assert {k: base[k] for k in base_row} == base_row  # baseline은 evaluate_seed와 같다
+    for r in rows:
+        for b in BUFFERS:
+            assert r[f"extra_lots_{b}h"] == r[f"held_lots_{b}h"] - round(r[f"lot_recall_{b}h"] * r["affected_lots"])
+        assert r["wrong_causes_all"] >= r["false_causes"]
+    assert rows[0]["chamber_alarms"] == 0 and rows[2]["chamber_alarms"] >= rows[2]["alarms_confirmed"]
+
+
+def _e4(base: list[tuple], new: list[tuple]) -> pd.DataFrame:
+    """(detected, lot_recall_24h, extra_lots_24h, wrong_causes_all) 목록으로 E4 행을 만든다."""
+    rows = []
+    for method, items in (("baseline", base), ("exposure+chamber", new)):
+        for seed, (d, r, e, w) in enumerate(items):
+            rows.append({"method": method, "seed": seed, "detected": d, "lot_recall_24h": r,
+                         "extra_lots_24h": e, "wrong_causes_all": w})
+    return pd.DataFrame(rows)
+
+
+def test_judge_e4_supports_all():
+    base = [(True, 0.8, 1, 0)] * 8 + [(False, 0.0, 0, 0)] * 2
+    new = [(True, 1.0, 3, 0)] * 9 + [(True, 0.9, 3, 0)]
+    v = {j["hypothesis"]: j["verdict"] for j in judge_e4(_e4(base, new))}
+    assert v == {1: "지지", 2: "지지", 3: "지지", 4: "지지"}
+
+
+def test_judge_e4_rejects_on_thresholds():
+    base = [(True, 0.8, 0, 0)] * 10
+    new = [(True, 0.95, 4, 1)] * 8 + [(True, 0.9, 4, 0)] * 2  # 놓친 시드 10개, 추가 보류 +4, 잘못 지목 8
+    v = {j["hypothesis"]: j["verdict"] for j in judge_e4(_e4(base, new))}
+    assert v == {1: "판정 불가", 2: "기각", 3: "기각", 4: "기각"}
