@@ -14,6 +14,7 @@ from fabtrace.analysis.commonality import window_population
 from fabtrace.analysis.containment import contain
 from fabtrace.analysis.pipeline import run_analysis, score_result
 from fabtrace.analysis.report import write_report
+from fabtrace.sim.genealogy import generate_genealogy
 from fabtrace.sim.inject import build_wafers, ground_truth
 
 
@@ -40,6 +41,12 @@ def result_exposure(fab_run, genealogy, fab):
     return run_analysis(preds, genealogy, fab.start_date, method="exposure")
 
 
+@pytest.fixture(scope="module")
+def result_chamber(fab_run, genealogy, fab):
+    _, _, preds = fab_run
+    return run_analysis(preds, genealogy, fab.start_date, method="exposure+chamber")
+
+
 def _summary(r):
     return (r.windows,
             [(f.pattern, f.window, f.causes, f.ranking_b[["chamber", "p", "q"]].to_dict("list"),
@@ -53,7 +60,7 @@ def test_finds_cause_and_contains(result, fab_run):
     assert ev["lot_recall"] == 1.0
 
 
-@pytest.mark.parametrize("method", ["baseline", "exposure"])
+@pytest.mark.parametrize("method", ["baseline", "exposure", "exposure+chamber"])
 def test_no_leak_shuffled_truth_gives_identical_result(fab_run, genealogy, fab, method):
     """정답 컬럼이 섞인 입력을 줘도 분석 결과가 똑같다. 분석은 pred_pattern만 읽는다."""
     wafers, _, preds = fab_run
@@ -93,8 +100,6 @@ def test_unknown_method_is_rejected(fab_run, genealogy, fab):
     _, _, preds = fab_run
     with pytest.raises(ValueError):
         run_analysis(preds, genealogy, fab.start_date, method="chamber")
-    with pytest.raises(NotImplementedError):
-        run_analysis(preds, genealogy, fab.start_date, method="exposure+chamber")
 
 
 def test_baseline_is_unchanged(result, fab_run, genealogy, fab):
@@ -137,6 +142,51 @@ def test_report_marks_method_only_when_not_baseline(result, result_exposure, fab
     assert "격리 방법" not in base["md"].read_text(encoding="utf-8")
 
 
+def test_chamber_mode_keeps_fab_wide_findings(result_exposure, result_chamber, fab_run):
+    """공장 전체가 이미 찾은 경우, 공장 전체 Finding과 채점은 exposure와 같고 같은 원인을 두 번 내지 않는다."""
+    wafers, gt, _ = fab_run
+    fab_findings = [f for f in result_chamber.findings if f.source == "fab"]
+    assert _summary(result_exposure) == _summary(result_chamber)[:len(_summary(result_exposure))]
+    assert len(fab_findings) == len(result_exposure.findings)
+    assert score_result(result_chamber, gt, wafers) == score_result(result_exposure, gt, wafers)
+    st = result_chamber.chamber_alarms
+    assert (st.loc[st["chamber"] == gt["chamber"], "status"] == "covered").all()
+    extra = [f for f in result_chamber.findings if f.source == "chamber"]
+    assert all(gt["chamber"] not in f.causes for f in extra)
+
+
+def test_chamber_mode_finds_excursion_missed_fab_wide(fab, s1):
+    """공장 전체 관리도가 놓친 원인을 챔버 감시 알림과 공통성 분석으로 찾고 영향 로트를 모두 보류한다."""
+    g = generate_genealogy(fab, 0)
+    lo, hi = s1.window(fab.start_date)
+    hit = g[(g["chamber"] == s1.chamber) & g["ts"].between(lo, hi, inclusive="left")]
+    wafers = g[["wafer_id"]].drop_duplicates().reset_index(drop=True)
+    rate = np.where(wafers["wafer_id"].isin(hit["wafer_id"]), 0.4, 0.05)
+    wafers["pred_pattern"] = np.where(np.random.default_rng(0).random(len(wafers)) < rate, "Edge-Ring", "none")
+    wafers["affected"] = wafers["wafer_id"].isin(hit["wafer_id"])
+    gt = {"pattern": "Edge-Ring", "chamber": s1.chamber, "window": {"start_day": 12, "end_day": 18},
+          "affected_lots": sorted(hit["lot_id"].unique())}
+
+    base = score_result(run_analysis(wafers, g, fab.start_date, method="exposure"), gt, wafers)
+    res = run_analysis(wafers, g, fab.start_date, method="exposure+chamber")
+    ev = score_result(res, gt, wafers)
+    assert not base["detected"]
+    assert ev["detected"] and ev["cause_found"] and ev["lot_recall"] == 1.0
+    assert all(f.source == "chamber" and f.causes == [s1.chamber] for f in res.findings if f.pattern == "Edge-Ring")
+
+
+def test_report_shows_chamber_alarms(result_chamber, fab_run, tmp_path):
+    wafers, gt, _ = fab_run
+    meta = {"scenario": "S1", "seed": 42, "model": "fake", "truth_chamber": gt["chamber"],
+            "truth_pattern": gt["pattern"], "truth_window": [12, 18]}
+    out = write_report(result_chamber, score_result(result_chamber, gt, wafers), meta, "ch", tmp_path, tmp_path)
+    analysis = json.loads(out["json"].read_text(encoding="utf-8"))["analysis"]
+    cm = analysis["chamber_monitoring"]
+    assert analysis["method"] == "exposure+chamber" and cm["points"] > 0
+    assert {a["status"] for a in cm["alarms"]} <= {"confirmed", "rejected", "covered", "short"}
+    assert "챔버 감시 알림" in out["md"].read_text(encoding="utf-8")
+
+
 @pytest.mark.needs_data
 def test_real_run(real_data_dir, s1_path, tmp_path):
     from fabtrace.analysis.pipeline import simulate_and_predict
@@ -149,3 +199,14 @@ def test_real_run(real_data_dir, s1_path, tmp_path):
         s1_path, s1_path.parents[1] / "fab.yaml", 42, load_wafer_data(real_data_dir), model)
     ev = score_result(run_analysis(preds, gen, fab_cfg.start_date), gt, wafers)
     assert ev["top1_b"]
+
+def test_chamber_mode_names_no_cause_without_fault(genealogy, fab):
+    """원인을 심지 않은 데이터에서는 챔버 감시가 알려도 원인 챔버를 지목하지 않는다."""
+    classes = ["none", "Edge-Ring", "Edge-Loc", "Center", "Loc", "Scratch", "Random", "Donut", "Near-full"]
+    prob = np.array([147431, 9680, 5189, 4294, 3593, 1193, 866, 555, 149], dtype=float)
+    wafers = genealogy[["wafer_id"]].drop_duplicates().reset_index(drop=True)
+    for seed in range(100, 105):
+        preds = wafers.assign(pred_pattern=np.random.default_rng(seed).choice(classes, len(wafers), p=prob / prob.sum()))
+        res = run_analysis(preds, genealogy, fab.start_date, method="exposure+chamber")
+        assert not [f for f in res.findings if f.source == "chamber"]
+        assert "confirmed" not in set(res.chamber_alarms["status"])
