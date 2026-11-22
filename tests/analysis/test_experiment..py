@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from fabtrace.analysis.experiment import BUFFERS, evaluate_seed, summarize
+from fabtrace.analysis.experiment import BUFFERS, choose_buffer, evaluate_seed, summarize
 from fabtrace.sim.genealogy import generate_genealogy
 from fabtrace.sim.inject import build_wafers, ground_truth
 
@@ -51,3 +51,37 @@ def test_exposure_method_reaches_buffer_columns(rows, rows_exposure):
     for b in BUFFERS:
         assert (rows_exposure[f"lot_recall_{b}h"] >= rows[f"lot_recall_{b}h"]).all()
     assert (rows_exposure["lot_recall_0h"] == 1.0).all()
+
+
+def _review_rows(recalls: dict[int, list[float]]) -> pd.DataFrame:
+    n = len(next(iter(recalls.values())))
+    return pd.DataFrame({f"lot_recall_{b}h": r for b, r in recalls.items()}
+                        | {f"lot_precision_{b}h": [0.5] * n for b in recalls})
+
+
+def _real(recalls: dict[int, float]) -> dict:
+    return {f"lot_recall_{b}h": r for b, r in recalls.items()} | {f"lot_precision_{b}h": 0.5 for b in recalls}
+
+
+def test_choose_buffer_picks_shortest_passing():
+    buffers = (0, 6, 12, 18, 24)
+    synth = _review_rows({0: [0.9, 0.95], 6: [0.97, 1.0], 12: [1.0, 1.0], 18: [1.0, 1.0], 24: [1.0, 1.0]})
+    real = _real({0: 1.0, 6: 1.0, 12: 1.0, 18: 1.0, 24: 1.0})
+    chosen, table = choose_buffer(real, synth, buffers)
+    assert chosen == 6  # 6h: 평균 0.985, 최소 0.97
+    assert table["passes"].tolist() == [False, True, True, True, True]
+
+
+def test_choose_buffer_needs_real_recall_one():
+    buffers = (0, 6, 12, 18, 24)
+    synth = _review_rows({b: [1.0, 1.0] for b in buffers})
+    real = _real({0: 0.9, 6: 0.9, 12: 1.0, 18: 1.0, 24: 1.0})
+    assert choose_buffer(real, synth, buffers)[0] == 12
+
+
+def test_choose_buffer_keeps_current_when_nothing_shorter_passes():
+    buffers = (0, 6, 12, 18, 24)
+    synth = _review_rows({b: [0.85, 1.0] for b in buffers})
+    real = _real({b: 1.0 for b in buffers})
+    chosen, table = choose_buffer(real, synth, buffers)
+    assert chosen == 24 and not table["passes"].any()
