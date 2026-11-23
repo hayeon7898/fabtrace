@@ -189,8 +189,11 @@ def judge_e4(df: pd.DataFrame) -> list[dict]:
     r_base = base.loc[base["detected"], f"lot_recall_{b}h"].mean()
     r_new = new.loc[new["detected"], f"lot_recall_{b}h"].mean()
     missing = int((new[f"lot_recall_{b}h"] < 1).sum())
-    ok2 = bool(r_new > r_base) and missing <= E4_MAX_MISSING_SEEDS
-    out.append({"hypothesis": 2, "verdict": "지지" if ok2 else "기각",
+    if pd.isna(r_base) or pd.isna(r_new):  # 한쪽이 감지한 시드가 없으면 평균을 비교할 수 없다
+        v2 = "판정 불가"
+    else:
+        v2 = "지지" if r_new > r_base and missing <= E4_MAX_MISSING_SEEDS else "기각"
+    out.append({"hypothesis": 2, "verdict": v2,
                 "evidence": f"감지된 시드 lot recall {r_base:.3f} -> {r_new:.3f}, "
                             f"로트를 놓친 시드 {missing}/{n} (기준 {E4_MAX_MISSING_SEEDS} 이하)"})
 

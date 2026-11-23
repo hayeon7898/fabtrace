@@ -135,3 +135,11 @@ def test_judge_e4_rejects_on_thresholds():
     new = [(True, 0.95, 4, 1)] * 8 + [(True, 0.9, 4, 0)] * 2  # 놓친 시드 10개, 추가 보류 +4, 잘못 지목 8
     v = {j["hypothesis"]: j["verdict"] for j in judge_e4(_e4(base, new))}
     assert v == {1: "판정 불가", 2: "기각", 3: "기각", 4: "기각"}
+
+
+def test_judge_e4_undecidable_when_one_side_detects_nothing():
+    """baseline이 감지한 시드가 없으면 recall 평균을 비교할 수 없으므로 가설 2는 판정 불가다."""
+    base = [(False, 0.0, 0, 0)] * 2
+    new = [(True, 1.0, 4, 0)] * 2
+    v = {j["hypothesis"]: j["verdict"] for j in judge_e4(_e4(base, new))}
+    assert v == {1: "지지", 2: "판정 불가", 3: "판정 불가", 4: "지지"}
