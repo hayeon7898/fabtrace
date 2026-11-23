@@ -1,6 +1,7 @@
 # fabtrace
 
 Wafer defect root-cause analysis and containment on a simulated fab, built on the public WM-811K wafer map dataset.
+![Sample wafer maps](docs/figures/wm811k_samples.png)
 
 A customer reports more Edge-Ring failures. fabtrace notices the excursion on a control chart, finds which process chamber the defective wafers have in common, and decides which lots to put on hold, the same flow a quality engineer follows in an 8D investigation.
 
