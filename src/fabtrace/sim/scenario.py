@@ -26,7 +26,7 @@
 원인이 여럿이거나 없으면 이 속성들은 에러를 낸다. 첫 원인만 쓰고 넘어가는 실수를 막기 위해서다.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pandas as pd
@@ -36,6 +36,8 @@ from fabtrace.data.wm811k import CLASSES
 from fabtrace.sim.config import FabConfig
 
 UNITS = ("chamber", "tool")
+# 난이도 곡선에 쓰는 강도 목록. 에이전트 결과를 보기 전에 정한 값이다(스펙 05 E6, 스펙 06 E7).
+INTENSITY_SWEEP = (0.1, 0.15, 0.2, 0.3, 0.4)
 
 
 @dataclass(frozen=True)
@@ -129,6 +131,17 @@ class Scenario:
 
     def window(self, start_date: str) -> tuple[pd.Timestamp, pd.Timestamp]:
         return self.only_cause.window(start_date)
+
+
+def with_intensity(sc: Scenario, intensity: float) -> Scenario:
+    """모든 원인의 강도를 intensity로 바꾼 시나리오. 강도가 일정한 원인만 받는다. id에 강도를 붙인다."""
+    for c in sc.causes:
+        if not c.constant:
+            raise ValueError(f"{sc.id}: 강도가 일정하지 않은 원인({c.location})은 바꿀 수 없다")
+    if not 0 < intensity <= 1:
+        raise ValueError(f"{sc.id}: 강도는 0 초과 1 이하")
+    causes = tuple(replace(c, intensity_start=intensity, intensity_end=intensity) for c in sc.causes)
+    return Scenario(id=f"{sc.id}@{intensity:g}", causes=causes)
 
 
 def load_scenario(path: str | Path, fab: FabConfig) -> Scenario:
