@@ -16,7 +16,7 @@ def _rows(fab, s1, method):
         gen = generate_genealogy(fab, seed)
         wafers = build_wafers(gen, s1, fab, pool, seed)
         preds = wafers[["wafer_id"]].assign(pred_pattern=wafers["true_pattern"])
-        out.append(evaluate_seed(seed, gen, wafers, ground_truth(s1, fab, wafers, seed), preds, fab.start_date,
+        out.append(evaluate_seed(seed, gen, wafers, ground_truth(s1, fab, wafers, seed, gen), preds, fab.start_date,
                                  method=method))
     return pd.DataFrame(out)
 
@@ -96,7 +96,7 @@ def e4_rows(fab, s1):
     gen = generate_genealogy(fab, 0)
     wafers = build_wafers(gen, s1, fab, pool, 0)
     preds = wafers[["wafer_id"]].assign(pred_pattern=wafers["true_pattern"])
-    gt = ground_truth(s1, fab, wafers, 0)
+    gt = ground_truth(s1, fab, wafers, 0, gen)
     return evaluate_methods(0, gen, wafers, gt, preds, fab.start_date), evaluate_seed(
         0, gen, wafers, gt, preds, fab.start_date)
 

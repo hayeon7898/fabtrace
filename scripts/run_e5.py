@@ -47,7 +47,7 @@ def run_synthetic(fab, sc, draws: int) -> pd.DataFrame:
     for draw in range(draws):
         wafers = build_wafers(genealogy, sc, fab, pool, draw)
         preds = wafers[["wafer_id"]].assign(pred_pattern=wafers["true_pattern"])
-        gt = ground_truth(sc, fab, wafers, draw)
+        gt = ground_truth(sc, fab, wafers, draw, genealogy)
         rows.append(evaluate_seed(draw, genealogy, wafers, gt, preds, fab.start_date, METHOD, REVIEW_BUFFERS))
     return pd.DataFrame(rows).rename(columns={"seed": "draw"})
 
