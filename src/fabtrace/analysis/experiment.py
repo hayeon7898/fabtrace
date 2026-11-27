@@ -210,3 +210,77 @@ def judge_e4(df: pd.DataFrame) -> list[dict]:
     out.append({"hypothesis": 4, "verdict": "지지" if w_new <= w_base else "기각",
                 "evidence": f"잘못 지목한 원인(모든 Finding) {w_base} -> {w_new}"})
     return out
+
+
+# 시드 나누기 (스펙 05 범위 C). 평가 시드는 스펙 06의 최종 비교 한 번에만 쓴다.
+EXPLORE_SEEDS = tuple(range(500, 505))   # 시나리오 정의를 정할 때 (#47)
+DEV_SEEDS = tuple(range(200, 210))       # 방법과 에이전트를 만들고 고칠 때, E6
+EVAL_SEEDS = tuple(range(300, 320))      # 스펙 06 E7 한 번
+
+
+def check_not_eval(seeds) -> None:
+    """평가 시드를 실수로 돌리지 못하게 막는다."""
+    bad = sorted(set(seeds) & set(EVAL_SEEDS))
+    if bad:
+        raise ValueError(f"평가 시드 {bad}는 스펙 06 E7에서만 쓴다. 개발 시드는 {DEV_SEEDS[0]}~{DEV_SEEDS[-1]}")
+
+
+E6_METHOD = "exposure+chamber"
+# E6 판정 기준. 결과를 보기 전에 정했다(스펙 05 E6). 실패가 10개 중 3개 이상에서 나타나야 E7(평가 시드
+# 20개)에서 에이전트가 개선할 여지를 보일 수 있다고 보았다.
+E6_MIN_FAIL_SEEDS = 3
+E6_MAX_MISSING_SEEDS = 1        # 가설 1: S1에서 로트를 놓친 시드 (E4 가설 2와 같음)
+E6_MIN_BOTH_FOUND = 8           # 가설 3: S3에서 두 원인을 모두 찾은 시드
+E6_MIN_S5_CLEAN = 9             # 가설 4: S5에서 원인을 지목하지 않은 시드
+
+
+def evaluate_scenario(scenario: str, seed: int, genealogy: pd.DataFrame, wafers: pd.DataFrame, gt: dict,
+                      predictions: pd.DataFrame, start_date: str, method: str = E6_METHOD) -> dict:
+    """시나리오 하나 x 시드 하나를 일반 채점으로 점수 낸다. scenario는 S1, S2@0.2 같은 이름이다."""
+    from fabtrace.analysis.scoring import score_row
+
+    result = run_analysis(predictions, genealogy, start_date, method=method)
+    return {"scenario": scenario, "seed": seed, "method": method} | score_row(result, gt, wafers, genealogy)
+
+
+def _sweep_name(name: str) -> float | None:
+    return float(name.split("@")[1]) if "@" in name else None
+
+
+def judge_e6(df: pd.DataFrame) -> list[dict]:
+    """E6 가설 1~6을 실행 전에 정한 기준으로 판정한다. df는 evaluate_scenario 행들이다."""
+    by = {k: g for k, g in df.groupby("scenario")}
+    out = []
+
+    def add(h, ok, evidence, needed):
+        missing = [n for n in needed if n not in by]
+        verdict = "판정 불가" if missing else ("지지" if ok() else "기각")
+        out.append({"hypothesis": h, "verdict": verdict,
+                    "evidence": f"시나리오 없음: {', '.join(missing)}" if missing else evidence()})
+
+    s1, s2, s3, s5 = (by.get(k) for k in ("S1", "S2@0.2", "S3", "S5"))
+    add(1, lambda: s1["c0_found"].all() and int((s1["c0_lot_recall"] < 1).sum()) <= E6_MAX_MISSING_SEEDS,
+        lambda: f"원인 찾음 {int(s1['c0_found'].sum())}/{len(s1)}, 로트를 놓친 시드 {int((s1['c0_lot_recall'] < 1).sum())}"
+                f" (기준 {E6_MAX_MISSING_SEEDS} 이하)", ["S1"])
+    add(2, lambda: int((~s2["c0_found"].astype(bool)).sum()) >= E6_MIN_FAIL_SEEDS,
+        lambda: f"못 찾은 시드 {int((~s2['c0_found'].astype(bool)).sum())}/{len(s2)} (기준 {E6_MIN_FAIL_SEEDS} 이상), "
+                f"지목한 챔버 비율 평균 {s2['c0_chamber_fraction'].mean():.2f}", ["S2@0.2"])
+    add(3, lambda: int((s3["causes_found"] == 2).sum()) >= E6_MIN_BOTH_FOUND
+        and int((s3["n_wrong_causes"] > 0).sum()) >= E6_MIN_FAIL_SEEDS,
+        lambda: f"두 원인 모두 찾음 {int((s3['causes_found'] == 2).sum())}/{len(s3)} (기준 {E6_MIN_BOTH_FOUND} 이상), "
+                f"진짜가 아닌 원인이 나온 시드 {int((s3['n_wrong_causes'] > 0).sum())} (기준 {E6_MIN_FAIL_SEEDS} 이상)", ["S3"])
+    add(4, lambda: int(s5["no_cause_correct"].astype(bool).sum()) >= E6_MIN_S5_CLEAN,
+        lambda: f"원인을 지목하지 않은 시드 {int(s5['no_cause_correct'].astype(bool).sum())}/{len(s5)} "
+                f"(기준 {E6_MIN_S5_CLEAN} 이상)", ["S5"])
+    add(5, lambda: by["S2@0.4"]["n_wrong_causes"].mean() > s1["n_wrong_causes"].mean()
+        and s3["n_wrong_causes"].mean() > s1["n_wrong_causes"].mean(),
+        lambda: f"시드당 진짜가 아닌 원인 S1 {s1['n_wrong_causes'].mean():.1f}, S2@0.4 "
+                f"{by['S2@0.4']['n_wrong_causes'].mean():.1f}, S3 {s3['n_wrong_causes'].mean():.1f}",
+        ["S1", "S2@0.4", "S3"])
+    sweep = sorted((_sweep_name(k), g["c0_found"].astype(bool).mean()) for k, g in by.items()
+                   if k.startswith("S2@"))
+    rates = [r for _, r in sorted(sweep, reverse=True)]  # 강도가 높은 쪽부터
+    add(6, lambda: all(b <= a for a, b in zip(rates, rates[1:])),
+        lambda: "강도별 원인 특정률 " + ", ".join(f"{i:g}: {r:.1f}" for i, r in sweep),
+        [f"S2@{i:g}" for i in (0.1, 0.15, 0.2, 0.3, 0.4)])
+    return out

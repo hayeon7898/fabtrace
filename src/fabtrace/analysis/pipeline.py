@@ -165,16 +165,19 @@ def score_result(result: RCAResult, ground_truth: dict, wafers: pd.DataFrame) ->
                                      "extra_lots", "wafer_precision", "wafer_recall")}
 
 
-def simulate_and_predict(scenario_path: Path, fab_path: Path, seed: int, data, model_path: Path):
-    """시드로 가상 팹을 만들고 분류기로 예측한다. (genealogy, wafers, ground_truth, predictions)"""
+def simulate_and_predict(scenario_path, fab_path: Path, seed: int, data, model_path: Path):
+    """시드로 가상 팹을 만들고 분류기로 예측한다. (fab, genealogy, wafers, ground_truth, predictions)
+
+    scenario_path는 시나리오 YAML 경로나 Scenario 객체다(예: with_intensity로 강도를 바꾼 시나리오).
+    """
     from fabtrace.models.evaluate import predict_wafers
     from fabtrace.sim.config import load_fab_config
     from fabtrace.sim.genealogy import generate_genealogy
     from fabtrace.sim.inject import build_wafers, ground_truth
-    from fabtrace.sim.scenario import load_scenario
+    from fabtrace.sim.scenario import Scenario, load_scenario
 
     fab = load_fab_config(fab_path)
-    sc = load_scenario(scenario_path, fab)
+    sc = scenario_path if isinstance(scenario_path, Scenario) else load_scenario(scenario_path, fab)
     fab_idx = data.indices("fab")
     pool = pd.DataFrame({"label": [CLASSES[i] for i in data.labels[fab_idx]]}, index=fab_idx)
 
