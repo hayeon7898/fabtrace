@@ -1,0 +1,11 @@
+# S2: 식각 설비 ETCH-02 전체(챔버 A, B, C)가 12~18일차에 이상을 일으켜 Edge-Ring 불량을 만든다.
+# 원인이 설비 단위라 신호가 세 챔버로 나뉜다. 강도 0.2에서는 고정 파이프라인이 챔버 일부만 지목하는
+# 경우가 생긴다(탐색 시드 500~504, #47). E6는 강도를 바꿔 가며 같은 정의를 함께 돌린다.
+id: S2
+causes:
+  - unit: tool
+    step: ETCH
+    location: ETCH-02
+    window: {start_day: 12, end_day: 18}   # 원인 단계를 지난 시각 기준, 양 끝 날짜 포함
+    pattern: Edge-Ring
+    intensity: 0.2

@@ -16,6 +16,7 @@ from fabtrace.analysis.pipeline import run_analysis, score_result
 from fabtrace.analysis.report import write_report
 from fabtrace.sim.genealogy import generate_genealogy
 from fabtrace.sim.inject import build_wafers, ground_truth
+from fabtrace.sim.scenario import load_scenario
 
 
 @pytest.fixture(scope="module")
@@ -210,3 +211,19 @@ def test_chamber_mode_names_no_cause_without_fault(genealogy, fab):
         res = run_analysis(preds, genealogy, fab.start_date, method="exposure+chamber")
         assert not [f for f in res.findings if f.source == "chamber"]
         assert "confirmed" not in set(res.chamber_alarms["status"])
+
+
+@pytest.mark.parametrize("name", ["s2", "s3", "s4", "s5"])
+def test_no_leak_on_new_scenarios(fab, genealogy, s1_path, name):
+    """S2~S5에서도 정답 컬럼을 섞은 입력의 분석 결과가 같다 (#47)."""
+    sc = load_scenario(s1_path.parent / f"{name}.yaml", fab)
+    counts = {"none": 11000, "Edge-Ring": 1500, "Edge-Loc": 600, "Center": 350, "Loc": 300}
+    labels = [c for c, n in counts.items() for _ in range(n)]
+    wafers = build_wafers(genealogy, sc, fab, pd.DataFrame({"label": labels}, index=range(len(labels))), seed=7)
+    with_truth = wafers[["wafer_id", "true_pattern", "affected", "injected"]].assign(pred_pattern=wafers["true_pattern"])
+    rng = np.random.default_rng(0)
+    poisoned = with_truth.assign(**{c: rng.permutation(with_truth[c].to_numpy())
+                                    for c in ("true_pattern", "affected", "injected")})
+    a = run_analysis(with_truth, genealogy, fab.start_date, method="exposure+chamber")
+    b = run_analysis(poisoned, genealogy, fab.start_date, method="exposure+chamber")
+    assert _summary(a) == _summary(b)

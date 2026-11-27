@@ -1,0 +1,16 @@
+# S3: 원인 두 개가 같은 패턴(Edge-Ring)을 만든다. 기간이 15~18일차에 겹쳐, 한 이상 구간에 두 원인이 섞인다.
+# 두 원인에 모두 걸린 웨이퍼는 먼저 적힌 원인(ETCH-03/B)의 패턴을 따른다(inject.py).
+id: S3
+causes:
+  - unit: chamber
+    step: ETCH
+    location: ETCH-03/B
+    window: {start_day: 12, end_day: 18}
+    pattern: Edge-Ring
+    intensity: 0.4
+  - unit: chamber
+    step: CMP
+    location: CMP-01/A
+    window: {start_day: 15, end_day: 22}
+    pattern: Edge-Ring
+    intensity: 0.4
