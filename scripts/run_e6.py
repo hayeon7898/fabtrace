@@ -4,6 +4,7 @@
         uv run python scripts/run_e6.py --scenarios S1,S3   # 일부만
         uv run python scripts/run_e6.py --scenarios S1@sweep # S1 난이도 곡선 (있으면 좋음)
         uv run python scripts/run_e6.py --rescore-e4        # 참고: E4 시드 100~109를 새 채점으로 다시 채점
+        uv run python scripts/run_e6.py --summary-only      # 이미 있는 csv로 요약과 그림만 다시 만든다
 
 - 방법은 exposure+chamber(현재 최선의 고정 파이프라인)다. 채점은 scoring.score_general이다.
 - S2는 강도 목록(scenario.INTENSITY_SWEEP)마다 같은 정의를 돌린다. S2@0.2가 s2.yaml과 같다.
@@ -133,7 +134,7 @@ def write_summary(df: pd.DataFrame, path: Path, figure: Path) -> None:
           "| 추가 보류 (전체) | 보류 로트 |",
           "| --- | --- | --- | --- | --- | --- | --- | --- |"]
     for name, r in agg.iterrows():
-        L.append(f"| {name} | {r['seeds']} | {int(r['causes_found'])}/{int(r['n_causes'])} | {_v(r['cause_precision'])} "
+        L.append(f"| {name} | {int(r['seeds'])} | {int(r['causes_found'])}/{int(r['n_causes'])} | {_v(r['cause_precision'])} "
                  f"| {_v(r['wrong_per_seed'])} | {_v(r['lot_recall_total'])} | {_v(r['extra_lots_total'])} "
                  f"| {_v(r['held_lots_total'])} |")
     if figure.exists():
@@ -163,7 +164,16 @@ def main() -> None:
     parser.add_argument("--fab", type=Path, default=Path("configs/fab.yaml"))
     parser.add_argument("--model", type=Path, default=Path("models/cnn_v1.pt"))
     parser.add_argument("--rescore-e4", action="store_true", help="참고: E4 시드 100~109를 새 채점으로 다시 채점")
+    parser.add_argument("--summary-only", action="store_true", help="이미 있는 e6_seeds.csv로 요약과 그림만 다시 만든다")
     args = parser.parse_args()
+
+    reports, figures = Path("results/reports"), Path("results/figures")
+    if args.summary_only:
+        df = pd.read_csv(reports / "e6_seeds.csv")
+        plot_sweep(df, figures / "e6_s2_sweep.png")
+        write_summary(df, reports / "e6_summary.md", figures / "e6_s2_sweep.png")
+        print(f"  summary: {reports / 'e6_summary.md'}")
+        return
 
     seeds = parse_seeds(args.seeds)
     check_not_eval(seeds)  # 데이터를 읽기 전에 거부한다
@@ -176,7 +186,6 @@ def main() -> None:
     def simulate(sc, seed):
         return simulate_and_predict(sc, args.fab, seed, data, args.model)
 
-    reports, figures = Path("results/reports"), Path("results/figures")
     reports.mkdir(parents=True, exist_ok=True)
     figures.mkdir(parents=True, exist_ok=True)
     if args.rescore_e4:
