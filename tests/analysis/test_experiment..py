@@ -2,7 +2,7 @@ import pandas as pd
 import pytest
 
 from fabtrace.analysis.experiment import (BUFFERS, E4_METHODS, choose_buffer, evaluate_methods, evaluate_seed,
-                                          judge_e4, summarize)
+                                          judge_e4, judge_e6, summarize)
 from fabtrace.sim.genealogy import generate_genealogy
 from fabtrace.sim.inject import build_wafers, ground_truth
 
@@ -143,3 +143,41 @@ def test_judge_e4_undecidable_when_one_side_detects_nothing():
     new = [(True, 1.0, 4, 0)] * 2
     v = {j["hypothesis"]: j["verdict"] for j in judge_e4(_e4(base, new))}
     assert v == {1: "지지", 2: "판정 불가", 3: "판정 불가", 4: "지지"}
+
+
+def test_eval_seeds_are_rejected():
+    from fabtrace.analysis.experiment import DEV_SEEDS, EVAL_SEEDS, check_not_eval
+
+    check_not_eval(DEV_SEEDS)
+    with pytest.raises(ValueError):
+        check_not_eval([200, EVAL_SEEDS[0]])
+
+
+def _e6(rows: dict[str, list[dict]]) -> pd.DataFrame:
+    base = {"c0_found": True, "c0_lot_recall": 1.0, "c0_chamber_fraction": 1.0, "causes_found": 1,
+            "n_wrong_causes": 0, "no_cause_correct": None}
+    return pd.DataFrame([{"scenario": s, "seed": i} | base | r for s, rs in rows.items() for i, r in enumerate(rs)])
+
+
+def _all_supporting():
+    sweep = {f"S2@{i:g}": [{"c0_found": k < n} for k in range(10)]
+             for i, n in ((0.4, 10), (0.3, 8), (0.2, 5), (0.15, 3), (0.1, 1))}
+    sweep["S2@0.4"] = [{"c0_found": True, "n_wrong_causes": 2}] * 10
+    sweep["S2@0.2"] = [{"c0_found": k < 5, "c0_chamber_fraction": 0.67} for k in range(10)]
+    return {"S1": [{}] * 9 + [{"c0_lot_recall": 0.9}],
+            "S3": [{"causes_found": 2, "n_wrong_causes": 1}] * 9 + [{"causes_found": 1}],
+            "S5": [{"no_cause_correct": True}] * 9 + [{"no_cause_correct": False}]} | sweep
+
+
+def test_judge_e6_supports_all():
+    v = {j["hypothesis"]: j["verdict"] for j in judge_e6(_e6(_all_supporting()))}
+    assert v == {h: "지지" for h in range(1, 7)}
+
+
+def test_judge_e6_rejects_and_handles_missing():
+    rows = _all_supporting()
+    rows["S2@0.2"] = [{"c0_found": True}] * 9 + [{"c0_found": False}]   # 못 찾은 시드 1개 < 3
+    rows["S2@0.1"] = [{"c0_found": True}] * 10                        # 강도가 낮은데 특정률이 오른다
+    del rows["S5"]
+    v = {j["hypothesis"]: j["verdict"] for j in judge_e6(_e6(rows))}
+    assert v[2] == "기각" and v[6] == "기각" and v[4] == "판정 불가" and v[1] == "지지"
