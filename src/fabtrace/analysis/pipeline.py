@@ -180,6 +180,6 @@ def simulate_and_predict(scenario_path: Path, fab_path: Path, seed: int, data, m
 
     genealogy = generate_genealogy(fab, seed)
     wafers = build_wafers(genealogy, sc, fab, pool, seed)
-    gt = ground_truth(sc, fab, wafers, seed)
+    gt = ground_truth(sc, fab, wafers, seed, genealogy)
     predictions = predict_wafers(model_path, data, wafers)
     return fab, genealogy, wafers, gt, predictions

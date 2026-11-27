@@ -29,7 +29,7 @@ def run(fab_path: Path, scenario_path: Path, seed: int, data_dir: Path, out_dir:
 
     genealogy = generate_genealogy(fab, seed)
     wafers = build_wafers(genealogy, sc, fab, pool, seed)
-    gt = ground_truth(sc, fab, wafers, seed)
+    gt = ground_truth(sc, fab, wafers, seed, genealogy)
 
     out_dir.mkdir(parents=True, exist_ok=True)
     genealogy.to_parquet(out_dir / "genealogy.parquet", index=False)
@@ -48,7 +48,7 @@ def main() -> None:
     args = parser.parse_args()
 
     gt = run(args.fab, args.scenario, args.seed, args.data, args.out)
-    print(f"{gt['scenario']} (seed {gt['seed']}): 원인 {gt['chamber']}, "
+    print(f"{gt['scenario']} (seed {gt['seed']}): 원인 {[c['location'] for c in gt['causes']] or '없음'}, "
           f"영향 {gt['n_affected_wafers']}장 / {len(gt['affected_lots'])}로트, "
           f"주입 {gt['n_injected_wafers']}장 -> {args.out}/")
 

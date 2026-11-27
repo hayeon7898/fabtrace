@@ -24,7 +24,7 @@ def fab_run(genealogy, fab, s1):
     labels = [c for c, n in counts.items() for _ in range(n)]
     pool = pd.DataFrame({"label": labels}, index=range(len(labels)))
     wafers = build_wafers(genealogy, s1, fab, pool, seed=42)
-    gt = ground_truth(s1, fab, wafers, seed=42)
+    gt = ground_truth(s1, fab, wafers, 42, genealogy)
     preds = wafers[["wafer_id"]].assign(pred_pattern=wafers["true_pattern"])
     return wafers, gt, preds
 
